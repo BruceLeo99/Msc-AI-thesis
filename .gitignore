@@ -1,0 +1,29 @@
+# Directories
+coco/ 
+interpretable-image/
+prototypical-networks/
+results/
+SPANet/
+robust-prototype-learning/
+pretrained-models/
+venv-msc-thesis/
+coco.zip
+__pycache__/
+pycocotools.egg-info/
+
+cocoapi/pythonapi/coco/
+
+# Model files
+*.pth
+model.pth
+ProtoPNet_resnet18_80train-20test-001lr_best_model.pth
+ProtoPNet_vgg16_80train-20test-001lr-10classes-10prototypes_best_model.pth
+ProtoPNet_resnet18_80train-20test-0.0001lr-10classes-30prototypes_best_model.pth
+ProtoPNet_vgg16_80train-20test-0.0001lr-10classes-30prototypes_best_model.pth
+ProtoPNet_vgg16_80train-20test-0.0001lr-10classes-30prototypes_model_in_progress.pth
+
+# Python cache files
+*.pyc
+*.pyo
+*.pyd
+.Python
