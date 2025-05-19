@@ -10,6 +10,7 @@ venv-msc-thesis/
 coco.zip
 __pycache__/
 pycocotools.egg-info/
+ProtoPNet/_pycache_/
 
 cocoapi/pythonapi/coco/
 

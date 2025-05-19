@@ -20,7 +20,7 @@ from io import BytesIO
 
 pylab.rcParams['figure.figsize'] = (8.0, 10.0)
 
-from pycocotools.coco import COCO
+from coco import COCO
 
 from sklearn.model_selection import train_test_split
 
