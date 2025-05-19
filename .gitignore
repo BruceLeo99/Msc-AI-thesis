@@ -27,3 +27,6 @@ ProtoPNet_vgg16_80train-20test-0.0001lr-10classes-30prototypes_model_in_progress
 *.pyo
 *.pyd
 .Python
+
+# Large PDF files
+ProtoPNet/supp_this_looks_like_that.pdf
