@@ -20,7 +20,7 @@ from io import BytesIO
 
 pylab.rcParams['figure.figsize'] = (8.0, 10.0)
 
-from coco import COCO
+from pycocotools.coco import COCO
 
 from sklearn.model_selection import train_test_split
 
@@ -249,9 +249,10 @@ def prepare_data(*categories, num_instances=100, test_size=0.2,
 if __name__ == '__main__':
     # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100))
     # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100))
-    data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100))
+    # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100), load_captions=True)
     # data_giraffe = MSCOCOCustomDataset(load_from_COCOAPI('giraffe', 100))
     # data_horse = MSCOCOCustomDataset(load_from_COCOAPI('horse', 100))
+    data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100), load_captions=True)
 
     # print(data_dog)
     # print(f"Number of images: {len(data_dog)}")
@@ -264,9 +265,13 @@ if __name__ == '__main__':
     # print("Captions:", captions)
     # image.show() 
 
-    print(f"Number of images: {len(data_zebra)}")
-    print(data_zebra.img_ids)
+    print(f"Number of images: {len(data_airplane)}")
+    print(data_airplane.img_ids)
 
+    image, label, captions = data_airplane[7]
+    print("Label:", label)
+    print("Captions:", captions)
+    image.show() 
 
 
     # train_data, test_data = prepare_data('dog', 'cat', 'zebra', 'giraffe', 'horse', num_instances=100, test_size=0.2)

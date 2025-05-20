@@ -11,6 +11,7 @@ coco.zip
 __pycache__/
 pycocotools.egg-info/
 ProtoPNet/_pycache_/
+plots/
 
 cocoapi/pythonapi/coco/
 
