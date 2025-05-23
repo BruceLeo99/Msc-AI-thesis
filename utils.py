@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 
 def get_accuracy(df, mode):
     """
@@ -84,3 +85,66 @@ def generate_subplot(ax, result_filename, value_type="Accuracy",row_nr=0,col_nr=
             ax[row_nr,col_nr].set_ylim(0,1)
         ax[row_nr,col_nr].legend()
     
+def get_losses(df_filename, mode="test", make_plot=False,save_plot=False):
+    """
+    Get the losses from the result dataframe.
+    """
+
+    df = pd.read_csv(df_filename)
+
+    if mode == "test":
+        cluster_loss = df[df["Mode"] == "test"]["Cluster"]
+        separation_loss = df[df["Mode"] == "test"]["Separation"]
+        avg_separation_loss = df[df["Mode"] == "test"]["Avg Separation"]
+
+    elif mode == "train":
+        cluster_loss = df[df["Mode"] == "train"]["Cluster"]
+        separation_loss = df[df["Mode"] == "train"]["Separation"]
+        avg_separation_loss = df[df["Mode"] == "train"]["Avg Separation"]
+    else:
+        raise ValueError(f"Invalid mode: {mode}. Mode should be either 'test' or 'train'.")
+
+    if make_plot:
+        model_name = generate_unimodal_name(df_filename)
+        num_epochs = list(range(1, len(cluster_loss)+1))
+        plt.figure(figsize=(10,5))
+        plt.plot(num_epochs, cluster_loss, label="Cluster Loss")
+        plt.plot(num_epochs, separation_loss, label="Separation Loss")
+        plt.plot(num_epochs, avg_separation_loss, label="Avg Separation Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.xlim(0,70)
+        plt.ylim(0,300)
+        plt.title(f"{model_name} {mode} Losses")
+        plt.legend()
+        if save_plot:
+            plt.savefig(f"../plots/unimodal/{model_name}_losses.png")
+        plt.show()
+
+    return cluster_loss, separation_loss, avg_separation_loss
+    
+def get_avg_p_pair_dist(df_filename, make_plot=False,save_plot=False):
+
+    """
+    Get the average pair distance from the result dataframe.
+    """
+    df = pd.read_csv(df_filename)
+
+    avg_pair_dist = df[df["Mode"] == 'test']["P Avg Pair Dist"]
+
+    if make_plot:
+        model_name = generate_unimodal_name(df_filename)
+        num_epochs = list(range(1, len(avg_pair_dist)+1))
+        plt.figure(figsize=(10,5))
+        plt.plot(num_epochs, avg_pair_dist)
+        plt.xlabel("Epoch")
+        plt.ylabel("Avg Pair Dist")
+        plt.title(f"{model_name} Avg Pair Dist")
+        plt.xlim(0,70)
+        plt.ylim(0,5000)
+        plt.legend()
+        if save_plot:
+            plt.savefig(f"../plots/unimodal/{model_name}_avg_pair_dist.png")
+        plt.show()
+
+    return avg_pair_dist

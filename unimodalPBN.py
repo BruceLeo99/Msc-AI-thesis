@@ -58,33 +58,33 @@ model1 = construct_PPNet(base_architecture='vgg16',
                         prototype_shape=(200, 512, 1, 1),  # 20 prototypes per class
                         num_classes=10)
 
-model2 = construct_PPNet(base_architecture='vgg16', 
-                        pretrained=True,
-                        prototype_shape=(300, 512, 1, 1),  # 30 prototypes per class
-                        num_classes=10)
+# model2 = construct_PPNet(base_architecture='vgg16', 
+#                         pretrained=True,
+#                         prototype_shape=(300, 512, 1, 1),  # 30 prototypes per class
+#                         num_classes=10)
 
-model3 = construct_PPNet(base_architecture='resnet18', 
-                        pretrained=True,
-                        prototype_shape=(200, 512, 1, 1),  # 20 prototypes per class
-                        num_classes=10)
+# model3 = construct_PPNet(base_architecture='resnet18', 
+#                         pretrained=True,
+#                         prototype_shape=(200, 512, 1, 1),  # 20 prototypes per class
+#                         num_classes=10)
 
-model4 = construct_PPNet(base_architecture='resnet18', 
-                        pretrained=True,
-                        prototype_shape=(300, 512, 1, 1),  # 30 prototypes per class
-                        num_classes=10)
+# model4 = construct_PPNet(base_architecture='resnet18', 
+#                         pretrained=True,
+#                         prototype_shape=(300, 512, 1, 1),  # 30 prototypes per class
+#                         num_classes=10)
 
 # Define loss function and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer1 = optim.Adam(model1.parameters(), lr=0.0005, weight_decay=1e-4)
-optimizer2 = optim.Adam(model2.parameters(), lr=0.0001, weight_decay=1e-4)
-optimizer3 = optim.Adam(model3.parameters(), lr=0.0005, weight_decay=1e-4)
-optimizer4 = optim.Adam(model4.parameters(), lr=0.0001, weight_decay=1e-4)
+optimizer1 = optim.Adam(model1.parameters(), lr=0.0001, weight_decay=1e-4)
+# optimizer2 = optim.Adam(model2.parameters(), lr=0.0001, weight_decay=1e-4)
+# optimizer3 = optim.Adam(model3.parameters(), lr=0.0005, weight_decay=1e-4)
+# optimizer4 = optim.Adam(model4.parameters(), lr=0.0001, weight_decay=1e-4)
 
 # Learning rate scheduler
 scheduler1 = optim.lr_scheduler.ReduceLROnPlateau(optimizer1, mode='max', factor=0.1, patience=25)
-scheduler2 = optim.lr_scheduler.ReduceLROnPlateau(optimizer2, mode='max', factor=0.1, patience=25)
-scheduler3 = optim.lr_scheduler.ReduceLROnPlateau(optimizer3, mode='max', factor=0.1, patience=25)
-scheduler4 = optim.lr_scheduler.ReduceLROnPlateau(optimizer4, mode='max', factor=0.1, patience=25)
+# scheduler2 = optim.lr_scheduler.ReduceLROnPlateau(optimizer2, mode='max', factor=0.1, patience=25)
+# scheduler3 = optim.lr_scheduler.ReduceLROnPlateau(optimizer3, mode='max', factor=0.1, patience=25)
+# scheduler4 = optim.lr_scheduler.ReduceLROnPlateau(optimizer4, mode='max', factor=0.1, patience=25)
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -103,23 +103,23 @@ if torch.cuda.is_available():
     print(f"Cached: {torch.cuda.memory_reserved(0)//1024//1024}MB")
     
     model1 = nn.DataParallel(model1)
-    model2 = nn.DataParallel(model2)
-    model3 = nn.DataParallel(model3)
-    model4 = nn.DataParallel(model4)
+    # model2 = nn.DataParallel(model2)
+    # model3 = nn.DataParallel(model3)
+    # model4 = nn.DataParallel(model4)
     model1 = model1.to(device)
-    model2 = model2.to(device)
-    model3 = model3.to(device)
-    model4 = model4.to(device)
+    # model2 = model2.to(device)
+    # model3 = model3.to(device)
+    # model4 = model4.to(device)
     criterion = criterion.to(device)
 else:
     model1 = nn.DataParallel(model1)
-    model2 = nn.DataParallel(model2)
-    model3 = nn.DataParallel(model3)
-    model4 = nn.DataParallel(model4)
+    # model2 = nn.DataParallel(model2)
+    # model3 = nn.DataParallel(model3)
+    # model4 = nn.DataParallel(model4)
     model1 = model1.to(device)
-    model2 = model2.to(device)
-    model3 = model3.to(device)
-    model4 = model4.to(device)
+    # model2 = model2.to(device)
+    # model3 = model3.to(device)
+    # model4 = model4.to(device)
 
 pause_training = False
 
@@ -296,7 +296,7 @@ def resume_training(model, optimizer, scheduler, device, criterion, result_name)
     
     return train_and_test(model, result_name, train_data, test_data, optimizer, scheduler, device, criterion,
                    num_epochs = epoch_left, 
-                   patience = 25,
+                   patience = 10,
                    save_result = True)
     
 
@@ -304,23 +304,23 @@ def resume_training(model, optimizer, scheduler, device, criterion, result_name)
 if __name__ == "__main__":
     try:
         # result_name = "ProtoPNet_vgg16_80train-20test-0.005lr-5classes-20prototypes"
-        # result_name1 = "ProtoPNet_vgg16_80train-20test-0.0005lr-10classes-20prototypes"
-        result_name2 = "ProtoPNet_vgg16_80train-20test-0.0001lr-10classes-30prototypes"
+        result_name1 = "ProtoPNet_vgg16_80train-20test-0.0001lr-10classes-20prototypes-rerun"
+        # result_name2 = "ProtoPNet_vgg16_80train-20test-0.0001lr-10classes-30prototypes"
         # result_name3 = "ProtoPNet_resnet18_80train-20test-0.0005lr-10classes-20prototypes"
-        result_name4 = "ProtoPNet_resnet18_80train-20test-0.0001lr-10classes-30prototypes"
+        # result_name4 = "ProtoPNet_resnet18_80train-20test-0.0001lr-10classes-30prototypes"
 
         # # Train models sequentially to manage memory better
-        # print("Training Model 1...")
-        # train_and_test(model1, result_name1, train_data, test_data, optimizer1, scheduler1, device, criterion,
-        #                 num_epochs = 70, 
-        #                 patience = 25,
-        #                 save_result = True)
+        print("Training Model 1...")
+        train_and_test(model1, result_name1, train_data, test_data, optimizer1, scheduler1, device, criterion,
+                        num_epochs = 300, 
+                        patience = 10,
+                        save_result = True)
         
-        # # Clear memory before next model
-        # if torch.cuda.is_available():
-        #     del model1
-        #     torch.cuda.empty_cache()
-        #     print("Cleared GPU memory after Model 1")
+        # Clear memory before next model
+        if torch.cuda.is_available():
+            del model1
+            torch.cuda.empty_cache()
+            print("Cleared GPU memory after Model 1")
         
         # print("\nTraining Model 2...")
         # train_and_test(model2, result_name2, train_data, test_data, optimizer2, scheduler2, device, criterion,
@@ -347,26 +347,26 @@ if __name__ == "__main__":
         #     print("Cleared GPU memory after Model 3")
 
 
-        print("Resume training Model 2...")
-        resume_training(model2, optimizer2, scheduler2, device, criterion, result_name2)
+        # print("Resume training Model 2...")
+        # resume_training(model2, optimizer2, scheduler2, device, criterion, result_name2)
 
-        # Clear memory before next model
-        if torch.cuda.is_available():
-            del model2
-            torch.cuda.empty_cache()
-            print("Cleared GPU memory after Model 2")
+        # # Clear memory before next model
+        # if torch.cuda.is_available():
+        #     del model2
+        #     torch.cuda.empty_cache()
+        #     print("Cleared GPU memory after Model 2")
 
 
-        print("\nTraining Model 4...")
-        train_and_test(model4, result_name4, train_data, test_data, optimizer4, scheduler4, device, criterion,
-                        num_epochs = 70, 
-                        patience = 25,
-                        save_result = True)
+        # print("\nTraining Model 4...")
+        # train_and_test(model4, result_name4, train_data, test_data, optimizer4, scheduler4, device, criterion,
+        #                 num_epochs = 70, 
+        #                 patience = 25,
+        #                 save_result = True)
         
-        if torch.cuda.is_available():
-            del model4
-            torch.cuda.empty_cache()
-            print("Cleared GPU memory after Model 4")
+        # if torch.cuda.is_available():
+        #     del model4
+        #     torch.cuda.empty_cache()
+        #     print("Cleared GPU memory after Model 4")
 
     except Exception as e:
         print(f"Training process interrupted by error: {str(e)}")

@@ -12,6 +12,7 @@ __pycache__/
 pycocotools.egg-info/
 ProtoPNet/_pycache_/
 plots/
+MSc_thesis_PBNtraining1.sh
 
 cocoapi/pythonapi/coco/
 
