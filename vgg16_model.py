@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 from torchvision import datasets, transforms
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 from sklearn.model_selection import train_test_split, KFold
 import time
@@ -249,14 +249,14 @@ if __name__ == "__main__":
     
     # train_data, validation_data = train_test_split(train_data, test_size=0.2, random_state=42)
     print("Loading Data...")
-    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False, num_workers=4)
-    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
     print(f"Data Loading Complete!\nTrain Data: {len(train_subset)}, Validation Data: {len(val_subset)}, Test Data: {len(test_data)}")
     
-    train_vgg16(model1, train_loader, val_loader, test_loader, num_epochs, learning_rate1, model_name1, device, save_result=True)
-    train_vgg16(model2, train_loader, val_loader, test_loader, num_epochs, learning_rate2, model_name2, device, save_result=True)
+    train_vgg16(model1, train_loader, val_loader, test_loader, num_epochs, learning_rate1, model_name1, device, save_result=False)
+    train_vgg16(model2, train_loader, val_loader, test_loader, num_epochs, learning_rate2, model_name2, device, save_result=False)
 
 
 

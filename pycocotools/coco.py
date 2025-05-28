@@ -93,6 +93,9 @@ class COCO:
         print('creating index...')
         anns, cats, imgs = {}, {}, {}
         imgToAnns,catToImgs = defaultdict(list),defaultdict(list)
+        if 'annotations' not in self.dataset:
+            print("No annotations found in the dataset")
+            
         if 'annotations' in self.dataset:
             for ann in self.dataset['annotations']:
                 imgToAnns[ann['image_id']].append(ann)

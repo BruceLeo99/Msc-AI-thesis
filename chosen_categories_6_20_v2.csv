@@ -1,0 +1,21 @@
+Supercategory Name,Category Name,Number of Training Images,Number of Validation Images
+accessory,handbag,6841,292
+furniture,toilet,3353,149
+kitchen,fork,3555,155
+kitchen,bowl,7111,314
+indoor,vase,3593,137
+kitchen,cup,9189,390
+kitchen,knife,4326,181
+kitchen,spoon,3529,153
+accessory,tie,3810,145
+outdoor,bench,5570,235
+appliance,sink,4678,187
+kitchen,wine glass,2533,110
+accessory,suitcase,2402,105
+indoor,book,5332,230
+appliance,refrigerator,2360,101
+furniture,dining table,11837,501
+appliance,oven,2877,115
+outdoor,fire hydrant,1711,86
+outdoor,traffic light,4139,191
+furniture,couch,4423,195

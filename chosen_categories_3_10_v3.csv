@@ -1,0 +1,11 @@
+Supercategory Name,Category Name,Number of Training Images,Number of Validation Images
+electronic,keyboard,2115,106
+vehicle,motorcycle,3502,159
+vehicle,boat,3025,121
+electronic,tv,4561,207
+vehicle,car,12251,535
+vehicle,bicycle,3252,149
+appliance,refrigerator,2360,101
+appliance,sink,4678,187
+electronic,cell phone,4803,214
+vehicle,bus,3952,189

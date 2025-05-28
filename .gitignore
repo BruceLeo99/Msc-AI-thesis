@@ -1,4 +1,7 @@
 # Directories
+common/
+pycocotools/
+pycocotools.egg-info/
 coco/ 
 interpretable-image/
 prototypical-networks/
@@ -12,9 +15,16 @@ __pycache__/
 pycocotools.egg-info/
 ProtoPNet/_pycache_/
 plots/
+
 MSc_thesis_PBNtraining1.sh
 
+ML-DAS-Ada-Snellius.pdf 
+
 cocoapi/pythonapi/coco/
+
+coco.sh
+
+pycocoDemo.ipynb
 
 # Model files
 *.pth
