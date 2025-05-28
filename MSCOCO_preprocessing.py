@@ -3,7 +3,7 @@
 # This script preprocesses and saves the data from Miscrosoft COCO dataset
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from sklearn.preprocessing import LabelEncoder
 import os
@@ -32,28 +32,49 @@ print(os.getcwd())
 
 # Setup the data directory and file paths
 # dataDir='cocoapi/PythonAPI/coco'
-dataDir='coco'
-dataType='val2017'
-instanceFilepath='{}/annotations/instances_{}.json'.format(dataDir,dataType)
-captionFilepath='{}/annotations/captions_{}.json'.format(dataDir,dataType)
+dataDir='coco' 
+trainDir='train2017' 
+valDir='val2017'
+testDir='test2017'
+
+trainInstanceFilepath=f'{dataDir}/annotations/instances_{trainDir}.json'
+trainCaptionFilepath=f'{dataDir}/annotations/captions_{trainDir}.json'
+
+valInstanceFilepath=f'{dataDir}/annotations/instances_{valDir}.json'
+valCaptionFilepath=f'{dataDir}/annotations/captions_{valDir}.json'
 
 # Load the instance and caption files
-coco_caption = COCO(captionFilepath)
-coco_instance = COCO(instanceFilepath)
+coco_caption_train = COCO(trainCaptionFilepath)
+coco_instance_train = COCO(trainInstanceFilepath)
 
-def retrieve_captions(img_id):
+coco_caption_val = COCO(valCaptionFilepath)
+coco_instance_val = COCO(valInstanceFilepath)
+
+# Due to the limitation of the MS COCO API, I use the original validation set for testing.
+coco_data_dict = {
+    'train': {
+        'caption': coco_caption_train,
+        'instance': coco_instance_train
+    },
+    'test': {
+        'caption': coco_caption_val,
+        'instance': coco_instance_val
+    }
+}
+
+def retrieve_captions(img_id, data_type):
     """
     Retrieves the captions for a given image id
     """
 
-    annotations = coco_caption.loadAnns(coco_caption.getAnnIds(imgIds=img_id))
+    annotations = coco_data_dict[data_type]['caption'].loadAnns(coco_data_dict[data_type]['caption'].getAnnIds(imgIds=img_id))
 
     captions = [ann['caption'] for ann in annotations]
 
     return " ".join(captions)
     
 
-def load_from_COCOAPI(cat_name, batch_size, shuffle=True):
+def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True):
     """
     Loads batch_size number of images and their corresponding captions
     from the Microsoft COCO API.
@@ -66,7 +87,7 @@ def load_from_COCOAPI(cat_name, batch_size, shuffle=True):
     to PyTorch Dataset class. 
 
     param cat_name: name of the category to load
-    param batch_size: number of images
+    param num_instances: number of images
     param shuffle: whether to shuffle the data
 
     returns dict(data_dict)
@@ -74,27 +95,27 @@ def load_from_COCOAPI(cat_name, batch_size, shuffle=True):
     data = []
 
     # Sort and get the image ids of the category
-    categories = coco_instance.dataset['categories']
+    categories = coco_data_dict[data_type]['instance'].dataset['categories']
     cat_ids = [category['id'] for category in categories]
     cat_names = [category['name'] for category in categories]
 
     cat_dict = dict(zip(cat_names, cat_ids))    
 
     cat_id = cat_dict[cat_name]
-    img_ids = coco_instance.getImgIds(catIds=cat_id)
+    img_ids = coco_data_dict[data_type]['instance'].getImgIds(catIds=cat_id)
 
     if shuffle:
         random.shuffle(img_ids)
 
-    img_ids = img_ids[:batch_size]
+    img_ids = img_ids[:num_instances]
         
     # Store the image ids, image_url and captions in data_dict
     for img_id in img_ids:
 
         data_info = {
             'img_id': img_id,
-            'url': coco_instance.loadImgs(img_id)[0]['coco_url'],
-            'captions': retrieve_captions(img_id),
+            'url': coco_data_dict[data_type]['instance'].loadImgs(img_id)[0]['coco_url'],
+            'captions': retrieve_captions(img_id, data_type),
             'category': cat_name
         }
 
@@ -102,21 +123,35 @@ def load_from_COCOAPI(cat_name, batch_size, shuffle=True):
 
     return data
 	
-def show_image(img_id):
+def show_image(img_id, data_type):
     """
     Shows the image for a given image id
     """
-    img = coco_instance.loadImgs(img_id)[0]
+    img = coco_data_dict[data_type]['instance'].loadImgs(img_id)[0]
     io.imshow(img['coco_url'])
     plt.show()
 
 def read_image(image_url):
     """
-    Reads an image from a given URL
+    Reads an image from a given URL with retry logic
     """
-    response = requests.get(image_url)
-    img = Image.open(BytesIO(response.content)).convert('RGB')
-    return img
+    import time
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(image_url, timeout=10)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            img = Image.open(BytesIO(response.content)).convert('RGB')
+            return img
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Failed to load image from {image_url}, attempt {attempt + 1}/{max_retries}. Retrying...")
+                time.sleep(1)  # Wait before retry
+            else:
+                print(f"Failed to load image from {image_url} after {max_retries} attempts: {e}")
+                # Return a black image as fallback
+                return Image.new('RGB', (224, 224), color='black')
 
  
 class MSCOCOCustomDataset(Dataset):
@@ -206,7 +241,7 @@ class MSCOCOCustomDataset(Dataset):
 def prepare_data(*categories, num_instances=100, test_size=0.2, 
                  transform=None, target_transform=None, load_captions=False):
     """
-    Prepares the data for the given categories.
+    Prepares the data for the given categories with a manually defined number of instances.
     Loads data for each category, splits each category separately to maintain class balance,
     and returns two MSCOCOCustomDataset objects.
 
@@ -223,7 +258,7 @@ def prepare_data(*categories, num_instances=100, test_size=0.2,
     
     for category in categories:
         # Load data for this category
-        category_data = load_from_COCOAPI(category, num_instances)
+        category_data = load_from_COCOAPI(category, num_instances, data_type='train')
         
         # Split this category's data
         category_train, category_test = train_test_split(
@@ -246,13 +281,87 @@ def prepare_data(*categories, num_instances=100, test_size=0.2,
     
     return train_data, test_data
 
+def prepare_data_from_preselected_categories(selection_csv, data_type, val_size=0.2,
+                 transform=None, target_transform=None, load_captions=False):
+    
+    """
+    Prepare the data from a list of preselected categories, which is preloaded in a csv file.
+    See choose_categories.py for more details.
+
+    Due to the limitation of the MS COCO API, I split val_size amount of data from the training set for validation,
+    and use the original validation set for testing.
+
+    param selection_csv: path to the csv file containing the preselected categories
+    param data_type: type of data to load, either 'train', 'val', or 'test'
+    param val_size: size of the validation set (as a fraction of the training set, 0.2 by default)
+    param transform: transform to apply to the images
+    param target_transform: transform to apply to the labels
+    param load_captions: whether to load the captions
+    
+    """
+
+    train_list = []
+    val_list = []
+    test_list = []
+    
+    df = pd.read_csv(selection_csv)
+    categories = df['Category Name'].tolist()
+
+    for category in categories:
+        # Load data for this category
+        if data_type == 'train':
+            num_instances = df[df['Category Name'] == category]['Number of Training Images'].values[0]
+            category_data = load_from_COCOAPI(category, num_instances, data_type, shuffle=True)
+
+            train, val = train_test_split(category_data, test_size=val_size, random_state=42)
+            train_list.extend(train)
+            val_list.extend(val)
+        
+        
+        elif data_type == 'test':
+            num_instances = df[df['Category Name'] == category]['Number of Validation Images'].values[0]
+            category_data = load_from_COCOAPI(category, num_instances, data_type, shuffle=False)
+            test_list.extend(category_data)
+        
+    
+    # Create datasets
+    if data_type == 'train':
+        train_data = MSCOCOCustomDataset(train_list, transform=transform, 
+                                    target_transform=target_transform, 
+                                    load_captions=load_captions)
+    
+        val_data = MSCOCOCustomDataset(val_list, transform=transform, 
+                                    target_transform=target_transform, 
+                                    load_captions=load_captions)
+    
+        return train_data, val_data
+    
+    elif data_type == 'test':
+        test_data = MSCOCOCustomDataset(test_list, transform=transform, 
+                                    target_transform=target_transform, 
+                                    load_captions=load_captions)
+        return test_data
+
+def data_summary(data, num_examples=0):
+    """
+    Prints a summary of the data.
+    """
+    print(f"Number of images: {len(data)}")
+    print(f"Number of categories: {len(set(data.img_labels.values()))}")
+
+    if num_examples > 0:
+        print(f"Example of data:")
+        for i in range(num_examples):
+            print(data[i])
+    
+
 if __name__ == '__main__':
     # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100))
     # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100))
     # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100), load_captions=True)
     # data_giraffe = MSCOCOCustomDataset(load_from_COCOAPI('giraffe', 100))
     # data_horse = MSCOCOCustomDataset(load_from_COCOAPI('horse', 100))
-    data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100), load_captions=True)
+    # data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100), load_captions=True)
 
     # print(data_dog)
     # print(f"Number of images: {len(data_dog)}")
@@ -265,17 +374,23 @@ if __name__ == '__main__':
     # print("Captions:", captions)
     # image.show() 
 
-    print(f"Number of images: {len(data_airplane)}")
-    print(data_airplane.img_ids)
+    # print(f"Number of images: {len(data_airplane)}")
+    # print(data_airplane.img_ids)
 
-    image, label, captions = data_airplane[7]
-    print("Label:", label)
-    print("Captions:", captions)
-    image.show() 
+    # image, label, captions = data_airplane[7]
+    # print("Label:", label)
+    # print("Captions:", captions)
+    # image.show() 
 
 
     # train_data, test_data = prepare_data('dog', 'cat', 'zebra', 'giraffe', 'horse', num_instances=100, test_size=0.2)
 
     # print(len(train_data), len(test_data))
+    # Test the preselected categories
+    
+    train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10.csv', 'train', val_size=0.15, load_captions=True)
+    test_data = prepare_data_from_preselected_categories('chosen_categories_3_10.csv', 'test', load_captions=True)
 
-
+    data_summary(train_data, num_examples=5)
+    data_summary(val_data, num_examples=5)
+    data_summary(test_data, num_examples=5)
