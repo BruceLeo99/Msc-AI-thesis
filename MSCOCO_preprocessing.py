@@ -198,16 +198,18 @@ class MSCOCOCustomDataset(Dataset):
         # Define the transformation mode for the labels
         label_names = list(set(self.img_labels.values()))
         label_name_idx = {name: idx for idx, name in enumerate(label_names)}
+        
         if self.target_transform == "one_hot":
             self.target_transform = transforms.Compose([
                 transforms.Lambda(lambda x: torch.zeros(len(label_names), dtype=torch.float).scatter_(0, torch.tensor(label_name_idx[self.img_labels[x]]), value=1))
             ])
 
         if self.target_transform == "integer":
+            # Store the label mapping for use in __getitem__
+            self.label_name_idx = label_name_idx
             
-            @staticmethod
             def label_transform(label):
-                return label_name_idx[label]
+                return self.label_name_idx[label]
             
             self.target_transform = label_transform
 

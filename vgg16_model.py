@@ -7,6 +7,7 @@ import torch
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR, CyclicLR
 from sklearn.model_selection import train_test_split, KFold
 import time
 from MSCOCO_preprocessing import *
@@ -122,6 +123,10 @@ def train_vgg16(
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Clear GPU cache before training
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     # Train model
     if save_result:
         with open(f"results/{model_name}_result.csv", "w") as f:
@@ -136,6 +141,7 @@ def train_vgg16(
         print(f"Epoch {epoch+1} of {num_epochs}")
 
         start_time = time.time()
+        model.train()  # Set model to training mode
         for i, (images, labels) in enumerate(train_loader, 0):
             images = images.to(device)
             labels = labels.to(device)
@@ -144,6 +150,17 @@ def train_vgg16(
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+            
+            # Clear variables to free memory
+            del images, labels, outputs
+            
+            # Clear GPU cache periodically during training
+            if i % 50 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        # Clear GPU cache after training phase
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         end_time = time.time()
         time_spent = end_time - start_time
@@ -152,6 +169,7 @@ def train_vgg16(
         
 
         # Validation
+        model.eval()  # Set model to evaluation mode
         with torch.no_grad():
             correct = 0
             total = 0
@@ -163,31 +181,20 @@ def train_vgg16(
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
                 correct += predicted.eq(labels).sum().item()
+                
+                # Clear variables to free memory
+                del images, labels, outputs
+                
+            # Clear GPU cache after validation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
             end_time = time.time()
             val_time = end_time - start_time
             val_accuracy = 100 * correct / total
             print(f"Accuracy of the model on the {total} validation images: {val_accuracy:.2f}%")
             print(f"Validation Time: {val_time:.2f} seconds")
             time_spent = 0
-
-        # Testing
-        with torch.no_grad():
-            correct = 0
-            total = 0
-            start_time = time.time()
-            for images, labels in test_loader:
-                images = images.to(device)
-                labels = labels.to(device)
-                outputs = model(images)
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-                del images, labels, outputs
-            end_time = time.time()
-            test_time = end_time - start_time
-            test_accuracy = 100 * correct / total
-            print(f"Accuracy of the model on the {total} test images: {test_accuracy:.2f}%")
-            print(f"Testing Time: {test_time:.2f} seconds")
 
             # Use validation accuracy for early stopping (not test accuracy!)
             if val_accuracy - best_accuracy > 0.01:
@@ -210,53 +217,111 @@ def train_vgg16(
                     print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy")
                     break
 
+        # Testing
+        model.eval()  # Set model to evaluation mode
+        with torch.no_grad():
+            correct = 0
+            total = 0
+            start_time = time.time()
+            for images, labels in test_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+                outputs = model(images)
+                _, predicted = outputs.max(1)
+                total += labels.size(0)
+                correct += predicted.eq(labels).sum().item()
+                
+                # Clear variables to free memory
+                del images, labels, outputs
+                
+            # Clear GPU cache after testing
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            end_time = time.time()
+            test_time = end_time - start_time
+            test_accuracy = 100 * correct / total
+            print(f"Accuracy of the model on the {total} test images: {test_accuracy:.2f}%")
+
         if save_result:
             with open(f"results/{model_name}_result.csv", "a") as f:
                 f.write(f"{epoch+1},{loss.item()},{val_accuracy:.2f},{test_accuracy:.2f},{time_spent:.2f}\n")
-
+        
     # Save model
     torch.save(model.state_dict(), f"{model_name}.pth")
-    print(f"Model saved to {model_name}.pth")     
+    print(f"Model saved to {model_name}.pth")
     
+    # Return the best validation accuracy and final test accuracy
+    return best_accuracy, test_accuracy
 
 if __name__ == "__main__":
+    # Memory optimization settings
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        # Enable memory efficient attention if available
+        torch.backends.cudnn.benchmark = True
+        # Set memory fraction to prevent over-allocation
+        torch.cuda.set_per_process_memory_fraction(0.9)
+    
     num_epochs = 200
     learning_rate1 = 0.0001
     learning_rate2 = 0.001
-    batch_size = 32
-    classes = ('dog', 'cat', 'zebra', 'giraffe', 'horse', 'pizza', 'cup', 'truck', 'train', 'airplane')
-    num_instances = 300
-    test_size = 0.2
-    model_name1 = "vgg16_baseline-10classes-0.0001lr-testrun"
-    model_name2 = "vgg16_baseline-10classes-0.001lr-testrun"
+    batch_size = 8
+    validation_size = 0.15
+    prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
+    prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
+
+    classes = prechosen_categories_csv['Category Name'].tolist()
+    model_name1 = "vgg16_newdata-10classes-0.0001lr-testrun"
+    model_name2 = "vgg16_newdata-10classes-0.001lr-testrun"
 
     # Initialize model  
     num_classes = len(classes)
-    model1 = VGG16(num_classes=num_classes).to(device)
+    # model1 = VGG16(num_classes=num_classes).to(device)
     model2 = VGG16(num_classes=num_classes).to(device)
     # print(model)
 
-    # Load data
-    train_data, test_data = prepare_data(*classes, 
-                                     transform="vgg16", target_transform="integer", num_instances=num_instances, test_size=test_size)
+    # Load data - pass the file path string, not the DataFrame
+    train_data, val_data = prepare_data_from_preselected_categories(
+        prechosen_categories_csv_path, 
+        'train', 
+        val_size=validation_size,
+        transform="vgg16",  # This will apply VGG16 transforms
+        target_transform="integer"  # This will convert labels to integers
+    )
+    test_data = prepare_data_from_preselected_categories(
+        prechosen_categories_csv_path, 
+        'test',
+        transform="vgg16",  # This will apply VGG16 transforms
+        target_transform="integer"  # This will convert labels to integers
+    )
 
-    # Split the training data into train and validation sets using the first fold
-    kfold = KFold(n_splits=5, shuffle=True, random_state=42)
-    train_indices, val_indices = next(iter(kfold.split(train_data)))
-    train_subset = Subset(train_data, train_indices)
-    val_subset = Subset(train_data, val_indices)
+    print("Data Summary:")
+    print("Training Data:")
+    data_summary(train_data, num_examples=5)
+    print("Validation Data:")
+    data_summary(val_data, num_examples=5)
+    print("Test Data:")
+    data_summary(test_data, num_examples=5)
 
-    
+    # Split the validation data into 5 folds
+    ## ToDo: Finish the implementation of 5-fold cross validation
+    # kfold = KFold(n_splits=5, shuffle=True, random_state=42)
+
     # train_data, validation_data = train_test_split(train_data, test_size=0.2, random_state=42)
     print("Loading Data...")
-    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    print(f"Data Loading Complete!\nTrain Data: {len(train_subset)}, Validation Data: {len(val_subset)}, Test Data: {len(test_data)}")
+    print(f"Data Loading Complete!\nTrain Data: {len(train_data)}, Validation Data: {len(val_data)}, Test Data: {len(test_data)}")
     
-    train_vgg16(model1, train_loader, val_loader, test_loader, num_epochs, learning_rate1, model_name1, device, save_result=False)
-    train_vgg16(model2, train_loader, val_loader, test_loader, num_epochs, learning_rate2, model_name2, device, save_result=False)
+    # train_vgg16(model1, train_loader, val_loader, test_loader, num_epochs, learning_rate1, model_name1, device, save_result=False)
+    best_val_acc, final_test_acc = train_vgg16(model2, train_loader, val_loader, test_loader, num_epochs, learning_rate2, model_name2, device, save_result=False)
+    
+    print(f"\nFinal Results:")
+    print(f"Best Validation Accuracy: {best_val_acc:.2f}%")
+    print(f"Final Test Accuracy: {final_test_acc:.2f}%")
 
 
 
