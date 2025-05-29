@@ -240,7 +240,8 @@ class MSCOCOCustomDataset(Dataset):
             # print("Returning 2 items")
             return image, image_label
         
-def prepare_data(*categories, num_instances=100, test_size=0.2, 
+
+def prepare_data_manually(*categories, num_instances=100, split_val = True,test_size=0.2, 
                  transform=None, target_transform=None, load_captions=False):
     """
     Prepares the data for the given categories with a manually defined number of instances.
@@ -249,6 +250,7 @@ def prepare_data(*categories, num_instances=100, test_size=0.2,
 
     param categories: list of categories to load
     param num_instances: number of instances to load per category
+    param split_val: whether to split the data into training and validation sets
     param test_size: size of the test set (as a fraction)
     param transform: transform to apply to the images
     param load_captions: whether to load the captions
@@ -262,28 +264,37 @@ def prepare_data(*categories, num_instances=100, test_size=0.2,
         # Load data for this category
         category_data = load_from_COCOAPI(category, num_instances, data_type='train')
         
-        # Split this category's data
-        category_train, category_test = train_test_split(
-            category_data, 
-            test_size=test_size, 
-            random_state=42
-        )
+        if split_val:
+            # Split this category's data
+            category_train, category_test = train_test_split(
+                category_data, 
+                test_size=test_size, 
+                random_state=42
+            )
         
-        # Add to respective lists
-        train_list.extend(category_train)
-        test_list.extend(category_test)
+         
+            train_list.extend(category_train)
+            test_list.extend(category_test)
+
+        else:
+            train_list.extend(category_data)
     
     # Create datasets
     train_data = MSCOCOCustomDataset(train_list, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
-    test_data = MSCOCOCustomDataset(test_list, transform=transform, 
+    
+    if split_val:
+        test_data = MSCOCOCustomDataset(test_list, transform=transform, 
                                    target_transform=target_transform, 
                                    load_captions=load_captions)
+        return train_data, test_data
     
-    return train_data, test_data
+    else:
+        
+        return train_data
 
-def prepare_data_from_preselected_categories(selection_csv, data_type, val_size=0.2,
+def prepare_data_from_preselected_categories(selection_csv, data_type, split_val=False, val_size=0.2,
                  transform=None, target_transform=None, load_captions=False):
     
     """
@@ -315,9 +326,12 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, val_size=
             num_instances = df[df['Category Name'] == category]['Number of Training Images'].values[0]
             category_data = load_from_COCOAPI(category, num_instances, data_type, shuffle=True)
 
-            train, val = train_test_split(category_data, test_size=val_size, random_state=42)
-            train_list.extend(train)
-            val_list.extend(val)
+            if split_val:
+                train, val = train_test_split(category_data, test_size=val_size, random_state=42)
+                train_list.extend(train)
+                val_list.extend(val)
+            else:
+                train_list.extend(category_data)
         
         
         elif data_type == 'test':
@@ -327,17 +341,26 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, val_size=
         
     
     # Create datasets
+    # If we need to split the training set into training and validation set, we return both datasets
+    # If not, then only the training
     if data_type == 'train':
         train_data = MSCOCOCustomDataset(train_list, transform=transform, 
                                     target_transform=target_transform, 
+          
                                     load_captions=load_captions)
     
-        val_data = MSCOCOCustomDataset(val_list, transform=transform, 
+        if split_val:
+            val_data = MSCOCOCustomDataset(val_list, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
+            return train_data, val_data
+        
+
+        else:
+
+            return train_data
     
-        return train_data, val_data
-    
+    # If we need to load the test set, we return the test dataset
     elif data_type == 'test':
         test_data = MSCOCOCustomDataset(test_list, transform=transform, 
                                     target_transform=target_transform, 
@@ -356,6 +379,311 @@ def data_summary(data, num_examples=0):
         for i in range(num_examples):
             print(data[i])
     
+
+def check_data_leakage(train_data, val_data, test_data, verbose=True):
+    """
+    Check for data leakage between train, validation, and test datasets.
+    
+    Data leakage occurs when the same image appears in multiple splits,
+    which can lead to overly optimistic performance estimates.
+    
+    Args:
+        train_data: Training dataset (MSCOCOCustomDataset)
+        val_data: Validation dataset (MSCOCOCustomDataset) 
+        test_data: Test dataset (MSCOCOCustomDataset)
+        verbose: Whether to print detailed information
+        
+    Returns:
+        dict: Summary of leakage detection results
+    """
+    
+    # Extract image IDs from each dataset
+    train_ids = set(train_data.img_ids)
+    val_ids = set(val_data.img_ids) if val_data is not None else set()
+    test_ids = set(test_data.img_ids)
+    
+    # Check for overlaps
+    train_val_overlap = train_ids.intersection(val_ids)
+    train_test_overlap = train_ids.intersection(test_ids)
+    val_test_overlap = val_ids.intersection(test_ids)
+    
+    # Check for any overlap across all three sets
+    all_overlap = train_ids.intersection(val_ids).intersection(test_ids)
+    
+    # Calculate statistics
+    total_unique_images = len(train_ids.union(val_ids).union(test_ids))
+    expected_total = len(train_ids) + len(val_ids) + len(test_ids)
+    
+    leakage_results = {
+        'train_size': len(train_ids),
+        'val_size': len(val_ids),
+        'test_size': len(test_ids),
+        'train_val_overlap': len(train_val_overlap),
+        'train_test_overlap': len(train_test_overlap),
+        'val_test_overlap': len(val_test_overlap),
+        'all_three_overlap': len(all_overlap),
+        'total_unique_images': total_unique_images,
+        'expected_total': expected_total,
+        'has_leakage': len(train_val_overlap) > 0 or len(train_test_overlap) > 0 or len(val_test_overlap) > 0,
+        'train_val_overlap_ids': list(train_val_overlap),
+        'train_test_overlap_ids': list(train_test_overlap),
+        'val_test_overlap_ids': list(val_test_overlap),
+        'all_three_overlap_ids': list(all_overlap)
+    }
+    
+    if verbose:
+        print("="*60)
+        print("DATA LEAKAGE DETECTION REPORT")
+        print("="*60)
+        
+        print(f"\nDataset Sizes:")
+        print(f"  Training:   {len(train_ids):,} images")
+        print(f"  Validation: {len(val_ids):,} images")
+        print(f"  Test:       {len(test_ids):,} images")
+        print(f"  Expected Total: {expected_total:,} images")
+        print(f"  Actual Unique:  {total_unique_images:,} images")
+        
+        print(f"\nOverlap Analysis:")
+        print(f"  Train ∩ Validation: {len(train_val_overlap):,} images")
+        print(f"  Train ∩ Test:       {len(train_test_overlap):,} images")
+        print(f"  Validation ∩ Test:  {len(val_test_overlap):,} images")
+        print(f"  All Three Sets:     {len(all_overlap):,} images")
+        
+        # Calculate leakage percentages
+        if len(val_ids) > 0:
+            train_val_pct = (len(train_val_overlap) / len(val_ids)) * 100
+            print(f"  Train→Val Leakage:  {train_val_pct:.2f}% of validation data")
+        
+        test_train_pct = (len(train_test_overlap) / len(test_ids)) * 100
+        print(f"  Train→Test Leakage: {test_train_pct:.2f}% of test data")
+        
+        if len(val_ids) > 0:
+            test_val_pct = (len(val_test_overlap) / len(test_ids)) * 100
+            print(f"  Val→Test Leakage:   {test_val_pct:.2f}% of test data")
+        
+        # Overall assessment
+        print(f"\nOverall Assessment:")
+        if leakage_results['has_leakage']:
+            print("  ⚠️  DATA LEAKAGE DETECTED!")
+            print("     This may lead to overly optimistic performance estimates.")
+            print("     Consider using different data splits or removing duplicates.")
+        else:
+            print("  ✅ NO DATA LEAKAGE DETECTED")
+            print("     All splits are properly separated.")
+        
+        # Show some example overlapping IDs if they exist
+        if len(train_val_overlap) > 0:
+            print(f"\nExample Train-Val Overlap IDs (showing first 5):")
+            for img_id in list(train_val_overlap)[:5]:
+                print(f"    Image ID: {img_id}")
+        
+        if len(train_test_overlap) > 0:
+            print(f"\nExample Train-Test Overlap IDs (showing first 5):")
+            for img_id in list(train_test_overlap)[:5]:
+                print(f"    Image ID: {img_id}")
+                
+        if len(val_test_overlap) > 0:
+            print(f"\nExample Val-Test Overlap IDs (showing first 5):")
+            for img_id in list(val_test_overlap)[:5]:
+                print(f"    Image ID: {img_id}")
+        
+        print("="*60)
+    
+    return leakage_results
+
+def eliminate_leaked_data(train_data, val_data, test_data, verbose=True):
+    """
+    Eliminate data that is present in multiple datasets.
+    """
+    pass # finish later
+
+def check_category_distribution(train_data, val_data, test_data, verbose=True):
+    """
+    Check the distribution of categories across train, validation, and test sets.
+    Also checks for overlaps between assigned classes (multi-label scenarios).
+    
+    Args:
+        train_data: Training dataset (MSCOCOCustomDataset)
+        val_data: Validation dataset (MSCOCOCustomDataset)
+        test_data: Test dataset (MSCOCOCustomDataset)
+        verbose: Whether to print detailed information
+        
+    Returns:
+        dict: Category distribution statistics and overlap analysis
+    """
+    import pandas as pd
+    from collections import Counter, defaultdict
+    
+    # Get category distributions
+    train_categories = Counter(train_data.img_labels.values())
+    val_categories = Counter(val_data.img_labels.values()) if val_data is not None else Counter()
+    test_categories = Counter(test_data.img_labels.values())
+    
+    # Get all unique categories
+    all_categories = set(train_categories.keys()) | set(val_categories.keys()) | set(test_categories.keys())
+    
+    # Create distribution dataframe
+    distribution_data = []
+    for category in sorted(all_categories):
+        train_count = train_categories.get(category, 0)
+        val_count = val_categories.get(category, 0)
+        test_count = test_categories.get(category, 0)
+        total_count = train_count + val_count + test_count
+        
+        if total_count > 0:
+            train_pct = (train_count / total_count) * 100
+            val_pct = (val_count / total_count) * 100
+            test_pct = (test_count / total_count) * 100
+        else:
+            train_pct = val_pct = test_pct = 0
+            
+        distribution_data.append({
+            'category': category,
+            'train_count': train_count,
+            'val_count': val_count,
+            'test_count': test_count,
+            'total_count': total_count,
+            'train_pct': train_pct,
+            'val_pct': val_pct,
+            'test_pct': test_pct
+        })
+    
+    df = pd.DataFrame(distribution_data)
+    
+    # Check for class overlaps/co-occurrence in images
+    def analyze_class_overlaps(dataset, dataset_name):
+        """Analyze if the same image has multiple class labels assigned"""
+        image_to_categories = defaultdict(list)
+        
+        # Group categories by image ID
+        for img_id, category in dataset.img_labels.items():
+            image_to_categories[img_id].append(category)
+        
+        # Find images with multiple categories
+        multi_label_images = {img_id: cats for img_id, cats in image_to_categories.items() if len(cats) > 1}
+        
+        # Count co-occurrences between categories
+        category_pairs = defaultdict(int)
+        for img_id, categories in multi_label_images.items():
+            for i, cat1 in enumerate(categories):
+                for cat2 in categories[i+1:]:
+                    pair = tuple(sorted([cat1, cat2]))
+                    category_pairs[pair] += 1
+        
+        return {
+            'total_images': len(image_to_categories),
+            'multi_label_images': len(multi_label_images),
+            'multi_label_percentage': (len(multi_label_images) / len(image_to_categories)) * 100 if len(image_to_categories) > 0 else 0,
+            'category_pairs': dict(category_pairs),
+            'multi_label_examples': dict(list(multi_label_images.items())[:5])  # First 5 examples
+        }
+    
+    # Analyze overlaps for each dataset
+    train_overlaps = analyze_class_overlaps(train_data, "Training")
+    val_overlaps = analyze_class_overlaps(val_data, "Validation") if val_data is not None else {
+        'total_images': 0, 'multi_label_images': 0, 'multi_label_percentage': 0, 
+        'category_pairs': {}, 'multi_label_examples': {}
+    }
+    test_overlaps = analyze_class_overlaps(test_data, "Test")
+    
+    # Combine all category pairs to get overall co-occurrence statistics
+    all_category_pairs = defaultdict(int)
+    for pairs_dict in [train_overlaps['category_pairs'], val_overlaps['category_pairs'], test_overlaps['category_pairs']]:
+        for pair, count in pairs_dict.items():
+            all_category_pairs[pair] += count
+    
+    # Sort category pairs by frequency
+    sorted_pairs = sorted(all_category_pairs.items(), key=lambda x: x[1], reverse=True)
+    
+    if verbose:
+        print("="*80)
+        print("CATEGORY DISTRIBUTION & OVERLAP REPORT")
+        print("="*80)
+        
+        print(f"\nTotal Categories: {len(all_categories)}")
+        print(f"Training Images: {sum(train_categories.values()):,}")
+        print(f"Validation Images: {sum(val_categories.values()):,}")
+        print(f"Test Images: {sum(test_categories.values()):,}")
+        
+        print(f"\nDetailed Distribution:")
+        print(df.to_string(index=False, float_format='%.1f'))
+        
+        # Check for missing categories in any split
+        missing_in_train = [cat for cat in all_categories if train_categories.get(cat, 0) == 0]
+        missing_in_val = [cat for cat in all_categories if val_categories.get(cat, 0) == 0]
+        missing_in_test = [cat for cat in all_categories if test_categories.get(cat, 0) == 0]
+        
+        if missing_in_train:
+            print(f"\n⚠️  Categories missing in TRAINING: {missing_in_train}")
+        if missing_in_val and val_data is not None:
+            print(f"⚠️  Categories missing in VALIDATION: {missing_in_val}")
+        if missing_in_test:
+            print(f"⚠️  Categories missing in TEST: {missing_in_test}")
+            
+        if not missing_in_train and not missing_in_val and not missing_in_test:
+            print(f"\n✅ All categories present in all splits")
+        
+        # Report class overlap analysis
+        print(f"\n" + "="*60)
+        print("CLASS OVERLAP ANALYSIS")
+        print("="*60)
+        
+        print(f"\nMulti-label Image Statistics:")
+        print(f"  Training Set:")
+        print(f"    Total Images: {train_overlaps['total_images']:,}")
+        print(f"    Multi-label Images: {train_overlaps['multi_label_images']:,} ({train_overlaps['multi_label_percentage']:.2f}%)")
+        
+        if val_data is not None:
+            print(f"  Validation Set:")
+            print(f"    Total Images: {val_overlaps['total_images']:,}")
+            print(f"    Multi-label Images: {val_overlaps['multi_label_images']:,} ({val_overlaps['multi_label_percentage']:.2f}%)")
+        
+        print(f"  Test Set:")
+        print(f"    Total Images: {test_overlaps['total_images']:,}")
+        print(f"    Multi-label Images: {test_overlaps['multi_label_images']:,} ({test_overlaps['multi_label_percentage']:.2f}%)")
+        
+        # Show most common category co-occurrences
+        if sorted_pairs:
+            print(f"\nMost Common Category Co-occurrences:")
+            for i, ((cat1, cat2), count) in enumerate(sorted_pairs[:10]):
+                print(f"  {i+1}. {cat1} + {cat2}: {count} images")
+        else:
+            print(f"\n✅ No category co-occurrences detected")
+            print(f"   Each image has exactly one category assigned")
+        
+        # Show examples of multi-label images
+        if train_overlaps['multi_label_examples']:
+            print(f"\nExample Multi-label Images (Training Set):")
+            for img_id, categories in list(train_overlaps['multi_label_examples'].items())[:3]:
+                print(f"  Image {img_id}: {', '.join(categories)}")
+        
+        # Assessment
+        total_multi_label = train_overlaps['multi_label_images'] + val_overlaps['multi_label_images'] + test_overlaps['multi_label_images']
+        if total_multi_label > 0:
+            print(f"\n⚠️  MULTI-LABEL SCENARIO DETECTED!")
+            print(f"   {total_multi_label} images have multiple category assignments")
+            print(f"   Consider using multi-label classification approaches")
+            print(f"   Current single-label approach may not capture all information")
+        else:
+            print(f"\n✅ SINGLE-LABEL SCENARIO CONFIRMED")
+            print(f"   Each image has exactly one category assigned")
+            print(f"   Single-label classification approach is appropriate")
+            
+        print("="*80)
+    
+    return {
+        'distribution_df': df,
+        'missing_in_train': missing_in_train,
+        'missing_in_val': missing_in_val,
+        'missing_in_test': missing_in_test,
+        'total_categories': len(all_categories),
+        'train_overlaps': train_overlaps,
+        'val_overlaps': val_overlaps,
+        'test_overlaps': test_overlaps,
+        'category_co_occurrences': dict(sorted_pairs),
+        'is_multi_label': total_multi_label > 0,
+        'total_multi_label_images': total_multi_label
+    }
 
 if __name__ == '__main__':
     # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100))
@@ -390,9 +718,12 @@ if __name__ == '__main__':
     # print(len(train_data), len(test_data))
     # Test the preselected categories
     
-    train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10.csv', 'train', val_size=0.15, load_captions=True)
-    test_data = prepare_data_from_preselected_categories('chosen_categories_3_10.csv', 'test', load_captions=True)
+    train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
+    test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
 
     data_summary(train_data, num_examples=5)
     data_summary(val_data, num_examples=5)
     data_summary(test_data, num_examples=5)
+
+    check_data_leakage(train_data, val_data, test_data)
+    check_category_distribution(train_data, val_data, test_data)
