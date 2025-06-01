@@ -84,9 +84,8 @@ class ResNet18(nn.Module):
         return out
     
 def train_resnet18(model,
-                   train_loader, 
-                   val_loader, 
-                   test_loader, 
+                   train_data, 
+                   val_data, 
                    num_epochs, 
                    learning_rate, 
                    model_name, 
@@ -246,6 +245,7 @@ if __name__ == "__main__":
     # Train the model
     train_resnet18(model1, train_loader, val_loader, test_loader, num_epochs, learning_rate1, model_name1, device, save_result=True)
     train_resnet18(model2, train_loader, val_loader, test_loader, num_epochs, learning_rate2, model_name2, device, save_result=True)
+
 
 def test_resnet18(model_path, test_data, device, num_classes, positive_class: int = 1):
     """ Test ResNet18 model and return accuracy & TP/FP/TN/FN lists (binary assumption) """

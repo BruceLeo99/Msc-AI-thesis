@@ -189,12 +189,8 @@ class MSCOCOCustomDataset(Dataset):
         self.img_labels = dict(zip(self.img_ids, [item['category'] for item in data_list]))
         self.img_urls = dict(zip(self.img_ids, [item['url'] for item in data_list]))
         self.load_captions = load_captions
-
-        
-        if load_captions:
-            self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in data_list]))
-        else:
-            pass
+        self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in data_list]))
+        self.img_supercategories = dict(zip(self.img_ids, [item['supercategory'] for item in data_list]))
     
         self.transform = transform
         self.target_transform = target_transform
@@ -210,17 +206,17 @@ class MSCOCOCustomDataset(Dataset):
             ])
 
         # Define the transformation mode for the labels
-        label_names = list(set(self.img_labels.values()))
-        label_name_idx = {name: idx for idx, name in enumerate(label_names)}
+        self.label_names = list(set(self.img_labels.values()))
+        self.label_name_idx = {name: idx for idx, name in enumerate(self.label_names)}
         
         if self.target_transform == "one_hot":
             self.target_transform = transforms.Compose([
-                transforms.Lambda(lambda x: torch.zeros(len(label_names), dtype=torch.float).scatter_(0, torch.tensor(label_name_idx[self.img_labels[x]]), value=1))
+                transforms.Lambda(lambda x: torch.zeros(len(self.label_names), dtype=torch.float).scatter_(0, torch.tensor(self.label_name_idx[self.img_labels[x]]), value=1))
             ])
 
         if self.target_transform == "integer":
             # Store the label mapping for use in __getitem__
-            self.label_name_idx = label_name_idx
+            self.label_name_idx = self.label_name_idx
             
             def label_transform(label):
                 return self.label_name_idx[label]
@@ -253,6 +249,24 @@ class MSCOCOCustomDataset(Dataset):
         else:
             # print("Returning 2 items")
             return image, image_label
+        
+    def get_dataset_labels(self):
+        return self.label_name_idx
+    
+    def get_image_id(self, idx):
+        return self.img_ids[idx]
+    
+    def get_image_url(self, idx):
+        return self.img_urls[self.img_ids[idx]]
+    
+    def get_image_label(self, idx):
+        return self.img_labels[self.img_ids[idx]]
+    
+    def get_image_caption(self, idx):
+        return self.img_captions[self.img_ids[idx]]
+    
+    def get_image_supercategory(self, idx):
+        return self.img_supercategories[self.img_ids[idx]]
         
 
 def prepare_data_manually(*categories, num_instances=100, for_test=False, split=True, split_size=0.2, experiment_name=None,
@@ -322,7 +336,7 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
                                     load_captions=load_captions)
         return test_data
     
-    
+
 def prepare_data_from_preselected_categories(selection_csv, data_type, split_val=False, val_size=0.2, experiment_name=None,
                  transform=None, target_transform=None, load_captions=False, save_result=False):
     
@@ -545,6 +559,11 @@ def eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verb
     Eliminate data that is present in multiple datasets.
     """
     leakage_results = check_data_leakage(train_data, val_data, test_data, verbose=verbose)
+
+    # If there is no leakage at all, then return the original datasets
+    if not leakage_results['has_leakage']:
+        return train_data, val_data, test_data
+    
 
     num_leaked_train_val = len(leakage_results['train_val_overlap_ids'])
     num_leaked_train_test = len(leakage_results['train_test_overlap_ids'])

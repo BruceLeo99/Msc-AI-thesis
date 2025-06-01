@@ -15,6 +15,7 @@ __pycache__/
 pycocotools.egg-info/
 ProtoPNet/_pycache_/
 plots/
+best_models/
 
 MSc_thesis_PBNtraining1.sh
 

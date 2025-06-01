@@ -15,6 +15,7 @@ from MSCOCO_preprocessing import *
 import pandas as pd
 from torch.utils.data import random_split, Subset
 from sklearn.metrics import classification_report, confusion_matrix
+import json
 
 
 
@@ -145,6 +146,9 @@ def train_vgg16(
         early_stopping_patience: Number of epochs to wait before early stopping
         lr_increase_patience: Number of epochs to wait before increasing learning rate
     """
+
+    if not os.path.exists(f"best_models"):
+        os.makedirs(f"best_models")
     
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
@@ -312,7 +316,9 @@ def train_vgg16_with_CV(
         early_stopping_patience: Number of epochs to wait before early stopping
         lr_increase_patience: Number of epochs to wait before increasing learning rate
     """
-    
+    if not os.path.exists(f"best_models"):
+        os.makedirs(f"best_models")
+
     # Clear GPU cache before training
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -495,7 +501,7 @@ def train_vgg16_with_CV(
     
 
 
-def test_vgg16(model_path, test_data, device, num_classes, positive_class: int = 1):
+def test_vgg16(model_path, experiment_name, test_data, device, num_classes, positive_class: int = 1, save_result=False, verbose=False):
     """
     Loads a trained VGG16 model from a .pth file and tests it on the test set.
     Additionally returns image-index lists for TP, FP, TN, FN (binary-class assumption).
@@ -508,24 +514,45 @@ def test_vgg16(model_path, test_data, device, num_classes, positive_class: int =
     Returns
         test_accuracy, dict with keys 'tp','fp','tn','fn' mapping to lists of sample indices
     """
+
+    if not os.path.exists(f"results/classification_reports"):
+        os.makedirs(f"results/classification_reports")
+
+    if not os.path.exists(f"results/confusion_matrices"):
+        os.makedirs(f"results/confusion_matrices")
+
     model = VGG16(num_classes=num_classes).to(device)
     model.load_state_dict(torch.load(model_path))
-    test_loader = DataLoader(test_data, batch_size=4, shuffle=False)
+    test_loader = DataLoader(test_data, shuffle=False)
     model.eval()
 
     test_correct = 0
     test_total = 0
 
+    y_img_ids = []
     y_true = []
     y_pred = []
 
-    # Lists of indices
-    tp_indices, fp_indices, tn_indices, fn_indices = [], [], [], []
+    # Dictionary of indices
+    tp_indices, fp_indices, tn_indices, fn_indices = {}, {}, {}, {}
+    
+    # Confusion matrix image mapping: (true_class, predicted_class) -> list of image details
+    confusion_matrix_images = {}
 
     print("Starting model testing...")
-    sample_idx = 0
+    label_names_idx = test_data.get_dataset_labels()
+    print(f"Label names and indices: {label_names_idx}")
+    
+    # Create reverse mapping from index to name
+    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+    print(f"Index to label mapping: {idx_to_label}")
+
     with torch.no_grad():
-        for images, labels in test_loader:
+        for idx, (images, labels) in enumerate(test_loader):
+            image_id = test_data.get_image_id(idx)
+            image_label = test_data.get_image_label(idx)
+            image_url = test_data.get_image_url(idx)
+            image_caption = test_data.get_image_caption(idx)
             images = images.to(device)
             labels = labels.to(device)
             outputs = model(images)
@@ -534,25 +561,40 @@ def test_vgg16(model_path, test_data, device, num_classes, positive_class: int =
             test_total += labels.size(0)
             test_correct += predicted.eq(labels).sum().item()
 
-            # Move to CPU numpy for easier handling
-            preds_np = predicted.cpu().numpy()
-            labels_np = labels.cpu().numpy()
-            for p, t in zip(preds_np, labels_np):
-                # Binary TP/FP/TN/FN based on positive_class
-                if t == positive_class and p == positive_class:
-                    tp_indices.append(sample_idx)
-                elif t != positive_class and p != positive_class and p == t:
-                    tn_indices.append(sample_idx)
-                elif t != positive_class and p == positive_class:
-                    fp_indices.append(sample_idx)
-                elif t == positive_class and p != positive_class:
-                    fn_indices.append(sample_idx)
+            for p, t in zip(predicted, labels):
+                # Convert tensors to integers
+                p_int = p.item()
+                t_int = t.item()
+                
+                # Get class names
+                true_class = idx_to_label[t_int]
+                pred_class = idx_to_label[p_int]
 
-                y_true.append(t)
-                y_pred.append(p)
-                sample_idx += 1
+                y_img_ids.append(image_id)
+                y_true.append(true_class)
+                y_pred.append(pred_class)
+                
+                # Create confusion matrix mapping
+                cell_key = (true_class, pred_class)
+                if cell_key not in confusion_matrix_images:
+                    confusion_matrix_images[cell_key] = []
+                
+                # Store comprehensive image information
+                image_info = {
+                    'image_id': image_id,
+                    'image_url': image_url,
+                    'image_caption': image_caption,
+                    'true_label': true_class,
+                    'pred_label': pred_class,
+                    'correct': true_class == pred_class
+                }
+                confusion_matrix_images[cell_key].append(image_info)
 
-            # Free
+                if verbose:
+                    print(f"Image ID: {image_id}, Image Label: {image_label}, Image URL: {image_url}, Image Caption: {image_caption}")
+                    print(f"Predicted: {pred_class}, True: {true_class}")
+
+            # Free memory
             del images, labels, outputs, predicted
 
         if torch.cuda.is_available():
@@ -560,24 +602,102 @@ def test_vgg16(model_path, test_data, device, num_classes, positive_class: int =
 
     test_accuracy = 100 * test_correct / test_total
 
+    individual_prediction_results = dict()
+
+    for test_image_id, test_label, test_pred in zip(y_img_ids, y_true, y_pred):
+        individual_prediction_results[test_image_id] = {
+            'true_label': test_label,
+            'pred_label': test_pred
+        }
+
     print(f"\n{'='*60}")
     print("TEST RESULTS")
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    print(f"TP: {len(tp_indices)}, FP: {len(fp_indices)}, TN: {len(tn_indices)}, FN: {len(fn_indices)}")
+    classi_report = classification_report(y_true, y_pred, target_names=list(idx_to_label.values()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred)
 
     print("\nClassification Report:")
-    print(classification_report(y_true, y_pred))
-    print("\nConfusion Matrix:")
-    print(confusion_matrix(y_true, y_pred))
+    print(classi_report)
 
-    return test_accuracy, {
-        'tp': tp_indices,
-        'fp': fp_indices,
-        'tn': tn_indices,
-        'fn': fn_indices
+    print("\nConfusion Matrix:")
+    print(conf_matrix)
+
+    # Print confusion matrix image mapping summary
+    print(f"\n{'='*60}")
+    print("CONFUSION MATRIX IMAGE MAPPING SUMMARY")
+    print(f"{'='*60}")
+    
+    correct_cells = 0
+    total_cells = 0
+    misclassification_patterns = []
+    
+    for (true_class, pred_class), images in confusion_matrix_images.items():
+        count = len(images)
+        total_cells += count
+        
+        if true_class == pred_class:
+            correct_cells += count
+            print(f"✅ {true_class} → {pred_class}: {count} images (CORRECT)")
+        else:
+            print(f"❌ {true_class} → {pred_class}: {count} images (MISCLASSIFIED)")
+            misclassification_patterns.append({
+                'true_class': true_class,
+                'pred_class': pred_class,
+                'count': count,
+                'image_ids': [img['image_id'] for img in images]
+            })
+    
+    print(f"\nSummary:")
+    print(f"  Total images: {total_cells}")
+    print(f"  Correctly classified: {correct_cells}")
+    print(f"  Misclassified: {total_cells - correct_cells}")
+    print(f"  Accuracy: {(correct_cells/total_cells)*100:.2f}%")
+    
+    if misclassification_patterns:
+        print(f"\nTop Misclassification Patterns:")
+        sorted_patterns = sorted(misclassification_patterns, key=lambda x: x['count'], reverse=True)
+        for i, pattern in enumerate(sorted_patterns[:5], 1):
+            print(f"  {i}. {pattern['true_class']} misclassified as {pattern['pred_class']}: {pattern['count']} images")
+
+    test_result = {
+        'experiment_name': experiment_name,
+        'pth_filepath': model_path,
+        'label_names_idx': label_names_idx,
+        'idx_to_label': idx_to_label,
+        'test_accuracy': test_accuracy,
+        'individual_prediction_results': individual_prediction_results
     }
+
+    if save_result:
+        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+            json.dump(test_result, f)
+            
+        # # Save confusion matrix image mapping separately for easier analysis
+        # with open(f"results/{experiment_name}_confusion_matrix_images.json", "w") as f:
+        #     json.dump(confusion_matrix_images, f, indent=2)
+            
+        # # Save misclassification patterns summary
+        # with open(f"results/{experiment_name}_misclassification_patterns.json", "w") as f:
+        #     json.dump(misclassification_patterns, f, indent=2)
+
+        df_classification_report = pd.DataFrame(classi_report).T
+        # The classification report already has proper row names, just ensure they're clean
+        df_classification_report.index.name = 'Class'
+        df_classification_report.to_csv(f"results/classification_reports/{experiment_name}_classification_report.csv")
+
+        # For confusion matrix, add proper labels
+        df_confusion_matrix = pd.DataFrame(conf_matrix)
+        # Set row and column labels to class names
+        class_names = list(idx_to_label.values())
+        df_confusion_matrix.index = class_names
+        df_confusion_matrix.columns = class_names
+        df_confusion_matrix.index.name = 'True Label'
+        df_confusion_matrix.columns.name = 'Predicted Label'
+        df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+
+    return test_result
 
 if __name__ == "__main__":
     # Create results directory if it doesn't exist
@@ -592,7 +712,7 @@ if __name__ == "__main__":
         # Set memory fraction to prevent over-allocation
         torch.cuda.set_per_process_memory_fraction(0.9)
     
-    num_epochs = 1
+    num_epochs = 2
     num_folds = 3
     learning_rate = 0.0001
     lr_increment_rate = 0.0001
@@ -619,15 +739,15 @@ if __name__ == "__main__":
 
     ### Load data - manually
 
-    train_data, val_data = prepare_data_manually(*classes, 
-                                        num_instances=50, 
-                                        split=True, 
-                                        split_size=0.15,
-                                        transform="vgg16", 
-                                        target_transform="integer")
+    # train_data, val_data = prepare_data_manually(*classes, 
+    #                                     num_instances=50, 
+    #                                     split=True, 
+    #                                     split_size=0.15,
+    #                                     transform="vgg16", 
+    #                                     target_transform="integer")
 
     test_data = prepare_data_manually(*classes, 
-                                        num_instances=50, 
+                                        num_instances=10, 
                                         for_test=True,
                                         transform="vgg16", 
                                         target_transform="integer")
@@ -650,40 +770,46 @@ if __name__ == "__main__":
 
 
     # Clean data
-    train_data, val_data, test_data = eliminate_leaked_data(experiment_name1, train_data, val_data, test_data, verbose=True, save_result=True)
+    #train_data, val_data, test_data = eliminate_leaked_data(experiment_name1, train_data, val_data, test_data, verbose=True, save_result=True)
 
 
     ### Train normally, without CV
-    best_model_path1 = train_vgg16(model1, 
-                                   train_data, 
-                                   val_data, 
-                                   model_name1, 
-                                   device, 
-                                   num_epochs=num_epochs, 
-                                   learning_rate=learning_rate,
-                                   lr_increment_rate=lr_increment_rate,
-                                   batch_size=batch_size, 
-                                   early_stopping_patience=early_stopping_patience,
-                                   lr_increase_patience=lr_increase_patience)
+    # best_model_path1 = train_vgg16(model1, 
+    #                                train_data, 
+    #                                val_data, 
+    #                                model_name1, 
+    #                                device, 
+    #                                num_epochs=num_epochs, 
+    #                                learning_rate=learning_rate,
+    #                                lr_increment_rate=lr_increment_rate,
+    #                                batch_size=batch_size, 
+    #                                early_stopping_patience=early_stopping_patience,
+    #                                lr_increase_patience=lr_increase_patience)
     
-    test_vgg16(best_model_path1, test_data, device, num_classes)
+    test_vgg16(f"best_models/vgg16_newdata-10classes-0.0001lr-testrun_best.pth", 
+               experiment_name1, 
+               test_data, 
+               device, 
+               num_classes, 
+               save_result=True,
+               verbose=True)
 
 
     ### Train with CV
-    best_model_path2 = train_vgg16_with_CV(model2, 
-                                           train_data, 
-                                           num_folds, 
-                                           num_epochs, 
-                                           learning_rate, 
-                                           model_name2, 
-                                           device, 
-                                           batch_size, 
-                                           lr_increment_rate=lr_increment_rate,
-                                           save_result=True,
-                                           early_stopping_patience=early_stopping_patience,
-                                           lr_increase_patience=lr_increase_patience)
+    # best_model_path2 = train_vgg16_with_CV(model2, 
+    #                                        train_data, 
+    #                                        num_folds, 
+    #                                        num_epochs, 
+    #                                        learning_rate, 
+    #                                        model_name2, 
+    #                                        device, 
+    #                                        batch_size, 
+    #                                        lr_increment_rate=lr_increment_rate,
+    #                                        save_result=True,
+    #                                        early_stopping_patience=early_stopping_patience,
+    #                                        lr_increase_patience=lr_increase_patience)
     
-    test_vgg16(best_model_path2, test_data, device, num_classes)
+    # test_vgg16(best_model_path2, test_data, device, num_classes)
     
 
 
