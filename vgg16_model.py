@@ -490,7 +490,7 @@ def train_vgg16_with_CV(
         cv_summary.to_csv(f"results/{model_name}_cv_summary.csv", index=False)
         
         with open(f"results/{model_name}_cv_stats.txt", "w") as f:
-            f.write(f"{n_val_splits}-Fold Cross-Validation Results\n")
+            f.write(f"{n_folds}-Fold Cross-Validation Results\n")
             f.write(f"Mean Accuracy: {mean_accuracy:.2f}%\n")
             f.write(f"Standard Deviation: {std_accuracy:.2f}%\n")
             f.write(f"Min Accuracy: {min(val_accuracies):.2f}%\n")
