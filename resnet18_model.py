@@ -12,6 +12,7 @@ import time
 from MSCOCO_preprocessing import *
 import pandas as pd
 from torch.utils.data import random_split, Subset
+from sklearn.metrics import classification_report, confusion_matrix
 
 import torch.nn as nn
 
@@ -245,3 +246,54 @@ if __name__ == "__main__":
     # Train the model
     train_resnet18(model1, train_loader, val_loader, test_loader, num_epochs, learning_rate1, model_name1, device, save_result=True)
     train_resnet18(model2, train_loader, val_loader, test_loader, num_epochs, learning_rate2, model_name2, device, save_result=True)
+
+def test_resnet18(model_path, test_data, device, num_classes, positive_class: int = 1):
+    """ Test ResNet18 model and return accuracy & TP/FP/TN/FN lists (binary assumption) """
+    model = ResNet18(num_classes=num_classes).to(device)
+    model.load_state_dict(torch.load(model_path))
+    test_loader = DataLoader(test_data, batch_size=4, shuffle=False)
+    model.eval()
+
+    test_correct = 0
+    test_total = 0
+    y_true, y_pred = [], []
+    tp_indices, fp_indices, tn_indices, fn_indices = [], [], [], []
+    sample_idx = 0
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+            _, predicted = outputs.max(1)
+
+            test_total += labels.size(0)
+            test_correct += predicted.eq(labels).sum().item()
+
+            preds_np = predicted.cpu().numpy()
+            labels_np = labels.cpu().numpy()
+            for p, t in zip(preds_np, labels_np):
+                if t == positive_class and p == positive_class:
+                    tp_indices.append(sample_idx)
+                elif t != positive_class and p != positive_class and p == t:
+                    tn_indices.append(sample_idx)
+                elif t != positive_class and p == positive_class:
+                    fp_indices.append(sample_idx)
+                elif t == positive_class and p != positive_class:
+                    fn_indices.append(sample_idx)
+                y_true.append(t)
+                y_pred.append(p)
+                sample_idx += 1
+            del images, labels, outputs, predicted
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    acc = 100 * test_correct / test_total
+    print(f"Test Accuracy: {acc:.2f}% | TP {len(tp_indices)} | FP {len(fp_indices)} | TN {len(tn_indices)} | FN {len(fn_indices)}")
+    print(classification_report(y_true, y_pred))
+    print(confusion_matrix(y_true, y_pred))
+    return acc, {'tp': tp_indices, 'fp': fp_indices, 'tn': tn_indices, 'fn': fn_indices}
+
+# Placeholder for consistency
+def train_resnet18_with_CV(model, train_data, n_folds, num_epochs, learning_rate, model_name, device, batch_size, lr_increment_rate=0.0001, save_result=False, early_stopping_patience=10, lr_increase_patience=5):
+    """ Wrapper that reuses train_vgg16_with_CV logic but for ResNet18 by importing from vgg16_model """
+    from vgg16_model import train_vgg16_with_CV as _train_cv_core
+    return _train_cv_core(model, train_data, n_folds, num_epochs, learning_rate, model_name, device, batch_size, lr_increment_rate, save_result, early_stopping_patience, lr_increase_patience)

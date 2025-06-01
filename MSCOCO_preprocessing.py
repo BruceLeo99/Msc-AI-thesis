@@ -1,6 +1,8 @@
 ### MSCOCO Preprocessing
 
 # This script preprocesses and saves the data from Miscrosoft COCO dataset
+# This script used a pre-loaded file 'dataset_info.csv' to map the category name to the supercategory name,
+# and to fetch necessary information of the dataset to save computational time.
 
 import torch
 from torch.utils.data import Dataset
@@ -13,10 +15,12 @@ import matplotlib.pyplot as plt
 import pylab
 import random 
 import pandas as pd
+from collections import Counter, defaultdict
 
 import requests
 from PIL import Image
 from io import BytesIO
+
 
 pylab.rcParams['figure.figsize'] = (8.0, 10.0)
 
@@ -32,10 +36,19 @@ print(os.getcwd())
 
 # Setup the data directory and file paths
 # dataDir='cocoapi/PythonAPI/coco'
+
 dataDir='coco' 
 trainDir='train2017' 
 valDir='val2017'
 testDir='test2017'
+
+dataset_info_df = pd.read_csv('dataset_info.csv')
+category_names = dataset_info_df['Category Name'].unique()
+
+# Create a mask to map the category name to the supercategory name
+category_supercategory_map = dict()
+for category_name in category_names:
+    category_supercategory_map[category_name] = dataset_info_df[dataset_info_df['Category Name'] == category_name]['Supercategory Name'].values[0]
 
 trainInstanceFilepath=f'{dataDir}/annotations/instances_{trainDir}.json'
 trainCaptionFilepath=f'{dataDir}/annotations/captions_{trainDir}.json'
@@ -116,7 +129,8 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True):
             'img_id': img_id,
             'url': coco_data_dict[data_type]['instance'].loadImgs(img_id)[0]['coco_url'],
             'captions': retrieve_captions(img_id, data_type),
-            'category': cat_name
+            'category': cat_name,
+            'supercategory': category_supercategory_map[cat_name]
         }
 
         data.append(data_info)
@@ -241,8 +255,8 @@ class MSCOCOCustomDataset(Dataset):
             return image, image_label
         
 
-def prepare_data_manually(*categories, num_instances=100, split_val = True,test_size=0.2, 
-                 transform=None, target_transform=None, load_captions=False):
+def prepare_data_manually(*categories, num_instances=100, for_test=False, split=True, split_size=0.2, experiment_name=None,
+                 transform=None, target_transform=None, load_captions=False, save_result=False):
     """
     Prepares the data for the given categories with a manually defined number of instances.
     Loads data for each category, splits each category separately to maintain class balance,
@@ -250,52 +264,67 @@ def prepare_data_manually(*categories, num_instances=100, split_val = True,test_
 
     param categories: list of categories to load
     param num_instances: number of instances to load per category
-    param split_val: whether to split the data into training and validation sets
-    param test_size: size of the test set (as a fraction)
+    param for_test: whether to load the data for testing
+    param split: whether to split the data into training and validation sets
+    param split_size: size of the test set (as a fraction)
     param transform: transform to apply to the images
     param load_captions: whether to load the captions
 
     returns train_data, test_data in MSCOCOCustomDataset format
     """
     train_list = []
+    val_list = []
     test_list = []
     
-    for category in categories:
-        # Load data for this category
-        category_data = load_from_COCOAPI(category, num_instances, data_type='train')
-        
-        if split_val:
-            # Split this category's data
-            category_train, category_test = train_test_split(
-                category_data, 
-                test_size=test_size, 
-                random_state=42
-            )
-        
-         
-            train_list.extend(category_train)
-            test_list.extend(category_test)
+    if not for_test:
+        for category in categories:
+            # Load data for this category
+            category_data = load_from_COCOAPI(category, num_instances, data_type='train')
+            
+            if split:
+                # Split this category's data
+                category_train, category_val = train_test_split(
+                    category_data, 
+                    test_size=split_size, 
+                    random_state=42
+                )
+            
+            
+                train_list.extend(category_train)
+                val_list.extend(category_val)
 
-        else:
-            train_list.extend(category_data)
-    
-    # Create datasets
-    train_data = MSCOCOCustomDataset(train_list, transform=transform, 
+            else:
+                train_list.extend(category_data)
+        
+        # Create datasets
+        train_data = MSCOCOCustomDataset(train_list, transform=transform, 
+                                        target_transform=target_transform, 
+                                        load_captions=load_captions)
+        
+        if split:
+            val_data = MSCOCOCustomDataset(val_list, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
-    
-    if split_val:
-        test_data = MSCOCOCustomDataset(test_list, transform=transform, 
-                                   target_transform=target_transform, 
-                                   load_captions=load_captions)
-        return train_data, test_data
-    
-    else:
+            return train_data, val_data
         
-        return train_data
+        # Only returns the training data if there is no need to split a test set from it
+        else:
+            return train_data
+        
 
-def prepare_data_from_preselected_categories(selection_csv, data_type, split_val=False, val_size=0.2,
-                 transform=None, target_transform=None, load_captions=False):
+    else:
+        for category in categories:
+            category_data = load_from_COCOAPI(category, num_instances, data_type='test')
+            test_list.extend(category_data)
+
+        test_data = MSCOCOCustomDataset(test_list, transform=transform, 
+                                    target_transform=target_transform, 
+                                    load_captions=load_captions)
+        return test_data
+    
+    
+def prepare_data_from_preselected_categories(selection_csv, data_type, split_val=False, val_size=0.2, experiment_name=None,
+                 transform=None, target_transform=None, load_captions=False, save_result=False):
     
     """
     Prepare the data from a list of preselected categories, which is preloaded in a csv file.
@@ -310,9 +339,8 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
     param transform: transform to apply to the images
     param target_transform: transform to apply to the labels
     param load_captions: whether to load the captions
-    
+    param save_result: whether to save the result
     """
-
     train_list = []
     val_list = []
     test_list = []
@@ -367,20 +395,41 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
                                     load_captions=load_captions)
         return test_data
 
-def data_summary(data, num_examples=0):
+def data_summary(experiment_name, train_data, val_data, test_data, num_examples=0, verbose=False, save_result=False):
     """
-    Prints a summary of the data.
+    Summarizes the data by printing the number of images in each category.
     """
-    print(f"Number of images: {len(data)}")
-    print(f"Number of categories: {len(set(data.img_labels.values()))}")
 
-    if num_examples > 0:
-        print(f"Example of data:")
-        for i in range(num_examples):
-            print(data[i])
+    df_dataset_info = pd.read_csv('dataset_info.csv')
+    category_names = list(set([data['category'] for data in train_data.data]))
+    supercategory_names = [category_supercategory_map[category] for category in category_names] 
     
+    # Counts the number of images per category in per set
+    num_imgs_per_set = {
+        'train': Counter([data['category'] for data in train_data.data]),
+        'val': Counter([data['category'] for data in val_data.data]),
+        'test': Counter([data['category'] for data in test_data.data])
+    }
 
-def check_data_leakage(train_data, val_data, test_data, verbose=True):
+    dataset_stats = pd.DataFrame({
+        'Supercategory Name': supercategory_names,
+        'Category Name': category_names,
+        'Number of Training Images': [num_imgs_per_set['train'][category] for category in category_names],
+        'Number of Validation Images': [num_imgs_per_set['val'][category] for category in category_names],
+        'Number of Test Images': [num_imgs_per_set['test'][category] for category in category_names],
+        'Total': [sum([num_imgs_per_set['train'][category], num_imgs_per_set['val'][category], num_imgs_per_set['test'][category]]) for category in category_names]
+    })
+
+    if save_result:
+        print("Saving dataset stats...")
+        dataset_stats.to_csv(f'dataset_stats_{experiment_name}.csv', index=False)
+
+    if verbose:
+        print(dataset_stats)
+
+    return dataset_stats
+
+def check_data_leakage(train_data, val_data, test_data, verbose=True, save_result=False):
     """
     Check for data leakage between train, validation, and test datasets.
     
@@ -392,7 +441,7 @@ def check_data_leakage(train_data, val_data, test_data, verbose=True):
         val_data: Validation dataset (MSCOCOCustomDataset) 
         test_data: Test dataset (MSCOCOCustomDataset)
         verbose: Whether to print detailed information
-        
+        save_result: Whether to save the result
     Returns:
         dict: Summary of leakage detection results
     """
@@ -491,28 +540,125 @@ def check_data_leakage(train_data, val_data, test_data, verbose=True):
     
     return leakage_results
 
-def eliminate_leaked_data(train_data, val_data, test_data, verbose=True):
+def eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=True, save_result=False):
     """
     Eliminate data that is present in multiple datasets.
     """
-    pass # finish later
+    leakage_results = check_data_leakage(train_data, val_data, test_data, verbose=verbose)
 
-def check_category_distribution(train_data, val_data, test_data, verbose=True):
+    num_leaked_train_val = len(leakage_results['train_val_overlap_ids'])
+    num_leaked_train_test = len(leakage_results['train_test_overlap_ids'])
+    num_leaked_val_test = len(leakage_results['val_test_overlap_ids'])
+
+    total_leaked_images = num_leaked_train_val + num_leaked_train_test + num_leaked_val_test
+
+    if verbose:
+        print("Data summary before elimination:")
+
+    data_stats_before_elimination = data_summary(experiment_name, train_data, val_data, test_data, verbose=verbose, save_result=save_result)
+
+    if leakage_results['has_leakage']:
+        print("Eliminating leaked train and val data from training set...")
+        leaked_datapoints = [datapoint for datapoint in train_data.data if datapoint['img_id'] in leakage_results['train_val_overlap_ids']]
+        for datapoint in leaked_datapoints:
+            train_data.data.remove(datapoint)
+
+    if leakage_results['has_leakage']:
+        print("Eliminating leaked train and test data from training set...")
+        leaked_datapoints = [datapoint for datapoint in train_data.data if datapoint['img_id'] in leakage_results['train_test_overlap_ids']]
+        for datapoint in leaked_datapoints:
+            train_data.data.remove(datapoint)
+
+    if leakage_results['has_leakage']:
+        print("Eliminating leaked val and test data from validation set...")
+        leaked_datapoints = [datapoint for datapoint in val_data.data if datapoint['img_id'] in leakage_results['val_test_overlap_ids']]
+        for datapoint in leaked_datapoints:
+            val_data.data.remove(datapoint)
+
+    data_stats_after_elimination = data_summary(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False)
+
+    data_stats_complete = pd.DataFrame({
+        'Supercategory Name': data_stats_before_elimination['Supercategory Name'],
+        'Category Name': data_stats_before_elimination['Category Name'],
+        'Number of Training Images Before': data_stats_before_elimination['Number of Training Images'],
+        'Number of Validation Images Before': data_stats_before_elimination['Number of Validation Images'],
+        'Number of Test Images Before': data_stats_before_elimination['Number of Test Images'],
+        'Total Before': data_stats_before_elimination['Total'],
+        'Number of Training Images After': data_stats_after_elimination['Number of Training Images'],
+        'Number of Validation Images After': data_stats_after_elimination['Number of Validation Images'],
+        'Number of Test Images After': data_stats_after_elimination['Number of Test Images'],
+        'Total After': data_stats_after_elimination['Total'],
+        'Number of Train Eliminated': data_stats_before_elimination['Number of Training Images'] - data_stats_after_elimination['Number of Training Images'],
+        'Number of Val Eliminated': data_stats_before_elimination['Number of Validation Images'] - data_stats_after_elimination['Number of Validation Images'],
+        'Number of Test Eliminated': data_stats_before_elimination['Number of Test Images'] - data_stats_after_elimination['Number of Test Images'],
+        })
+
+    # Insert a row of sum of all categories
+    data_stats_complete.loc[len(data_stats_complete)] = ["Total", "Nah",
+        data_stats_before_elimination['Number of Training Images'].sum(),
+        data_stats_before_elimination['Number of Validation Images'].sum(),
+        data_stats_before_elimination['Number of Test Images'].sum(),
+        data_stats_before_elimination['Total'].sum(),
+        data_stats_after_elimination['Number of Training Images'].sum(),
+        data_stats_after_elimination['Number of Validation Images'].sum(),
+        data_stats_after_elimination['Number of Test Images'].sum(),
+        data_stats_after_elimination['Total'].sum(),
+        data_stats_before_elimination['Number of Training Images'].sum() - data_stats_after_elimination['Number of Training Images'].sum(),
+        data_stats_before_elimination['Number of Validation Images'].sum() - data_stats_after_elimination['Number of Validation Images'].sum(),
+        data_stats_before_elimination['Number of Test Images'].sum() - data_stats_after_elimination['Number of Test Images'].sum()]
+    
+    # Incert a column of train-val-test ration after elimination
+
+    data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Train Ratio', 
+                              data_stats_complete['Number of Training Images Before'] / data_stats_complete['Total Before'])
+    
+    data_stats_complete.insert(len(data_stats_complete.columns), 'Final Train Ratio', 
+                              data_stats_complete['Number of Training Images After'] / data_stats_complete['Total After'])
+    
+    data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Val Ratio',
+                            data_stats_complete['Number of Validation Images Before'] / data_stats_complete['Total Before'])
+
+    data_stats_complete.insert(len(data_stats_complete.columns), 'Final Val Ratio',
+                            data_stats_complete['Number of Validation Images After'] / data_stats_complete['Total After'])
+    
+    data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Test Ratio',
+                            data_stats_complete['Number of Test Images Before'] / data_stats_complete['Total Before'])
+    
+    data_stats_complete.insert(len(data_stats_complete.columns), 'Final Test Ratio',
+                            data_stats_complete['Number of Test Images After'] / data_stats_complete['Total After'])
+    
+    if verbose:
+        print("Leaked data eliminated.")
+        print(f"{num_leaked_train_test} leaked images in train and test. Removed from training set.")
+        print(f"{num_leaked_val_test} leaked images in val and test. Removed from validation set.")
+        print(f"Total leaked images: {total_leaked_images}")
+        print("Data summary afte leakage elimination:")
+        print(data_stats_complete)
+
+    # Save result of dataset: before and after elimination
+    if save_result:
+        print("Saving dataset stats after elimination...")
+        data_stats_complete.to_csv(f'dataset_stats_{experiment_name}.csv', index=False)
+
+    return train_data, val_data, test_data
+
+
+
+def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=True, save_result=False):
     """
     Check the distribution of categories across train, validation, and test sets.
     Also checks for overlaps between assigned classes (multi-label scenarios).
     
     Args:
+        experiment_name: Name of the experiment
         train_data: Training dataset (MSCOCOCustomDataset)
         val_data: Validation dataset (MSCOCOCustomDataset)
         test_data: Test dataset (MSCOCOCustomDataset)
         verbose: Whether to print detailed information
-        
+        save_result: Whether to save the result
     Returns:
         dict: Category distribution statistics and overlap analysis
     """
-    import pandas as pd
-    from collections import Counter, defaultdict
     
     # Get category distributions
     train_categories = Counter(train_data.img_labels.values())
@@ -670,8 +816,8 @@ def check_category_distribution(train_data, val_data, test_data, verbose=True):
             print(f"   Single-label classification approach is appropriate")
             
         print("="*80)
-    
-    return {
+
+    assessment_result = {
         'distribution_df': df,
         'missing_in_train': missing_in_train,
         'missing_in_val': missing_in_val,
@@ -684,8 +830,15 @@ def check_category_distribution(train_data, val_data, test_data, verbose=True):
         'is_multi_label': total_multi_label > 0,
         'total_multi_label_images': total_multi_label
     }
+    
+    return assessment_result
 
 if __name__ == '__main__':
+
+    #########################################################################################
+    # Example usage of loading data from a single category and showing an example image
+    #########################################################################################
+
     # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100))
     # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100))
     # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100), load_captions=True)
@@ -712,18 +865,18 @@ if __name__ == '__main__':
     # print("Captions:", captions)
     # image.show() 
 
-
+    #########################################################################################
+    # Example usage of loading data in one go
+    #########################################################################################
     # train_data, test_data = prepare_data('dog', 'cat', 'zebra', 'giraffe', 'horse', num_instances=100, test_size=0.2)
 
     # print(len(train_data), len(test_data))
     # Test the preselected categories
     
+    experiment_name = 'testrun'
+
     train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
     test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
 
-    data_summary(train_data, num_examples=5)
-    data_summary(val_data, num_examples=5)
-    data_summary(test_data, num_examples=5)
-
-    check_data_leakage(train_data, val_data, test_data)
-    check_category_distribution(train_data, val_data, test_data)
+    train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=True, save_result=True)
+    check_category_distribution(experiment_name, train_data, val_data, test_data, save_result=True)
