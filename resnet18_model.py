@@ -91,8 +91,8 @@ def train_resnet18(
         model,
         train_data,
         val_data,
-        model_name,
-        device,
+                   model_name, 
+                   device, 
         num_epochs=10,
         learning_rate=0.0001,
         batch_size=32,
@@ -131,7 +131,7 @@ def train_resnet18(
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-
+    
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -589,8 +589,6 @@ def test_resnet18(model_path, experiment_name, test_data, device, num_classes, p
         with open(f"results/{experiment_name}_test_result.json", "w") as f:
             json.dump(test_result, f)
             
-
-
         df_classification_report = pd.DataFrame(classi_report).T
         # The classification report already has proper row names, just ensure they're clean
         df_classification_report.index.name = 'Class'
@@ -607,7 +605,7 @@ def test_resnet18(model_path, experiment_name, test_data, device, num_classes, p
         df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_result
-
+        
 if __name__ == "__main__":
     # Create results directory if it doesn't exist
     if not os.path.exists('results'):

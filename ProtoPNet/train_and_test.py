@@ -1,7 +1,7 @@
 import time
 import torch
 
-from helpers import list_of_distances, make_one_hot
+from ProtoPNet.helpers import list_of_distances, make_one_hot
 
 def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l1_mask=True,
                    coefs=None, log=print, get_full_results=False):
@@ -119,6 +119,9 @@ def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l
         del predicted
         del min_distances
 
+        if i % 50 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     end = time.time()
 
     # save the results
@@ -163,7 +166,7 @@ def train(model, dataloader, optimizer, class_specific=False, coefs=None, log=pr
                           class_specific=class_specific, coefs=coefs, log=log, get_full_results=get_full_results)
 
 
-def test(model, dataloader, class_specific=False, log=print, get_full_results=False):
+def validate(model, dataloader, class_specific=False, log=print, get_full_results=False):
     log('\ttest')
     model.eval()
     return _train_or_test(model=model, dataloader=dataloader, optimizer=None,

@@ -166,7 +166,7 @@ def train_vgg16(
     
     # Original single train/val split training
     print("Starting Training.\nModel: VGG16 baseline with No Prototypes")
-    
+
     # Train model
     if save_result:
         with open(f"results/{model_name}_result.csv", "w") as f:
@@ -180,7 +180,7 @@ def train_vgg16(
     print("Start Training VGG16")
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1} of {num_epochs}")
-        
+
         ### Training phase
         train_start_time = time.time()
         model.train()
@@ -197,7 +197,7 @@ def train_vgg16(
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            
+
             # Calculate training accuracy
             _, predicted = outputs.max(1)
             train_total += labels.size(0)
@@ -287,7 +287,7 @@ def train_vgg16(
                 else:
                     print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
                     break
-        
+
         # Calculate time spent for one epoch and save the result
         epoch_time = train_time_spent + val_time
         if save_result:
@@ -806,7 +806,7 @@ if __name__ == "__main__":
     #                                        lr_increase_patience=lr_increase_patience)
     
     # test_vgg16(best_model_path2, test_data, device, num_classes)
-    
+
 
 
 

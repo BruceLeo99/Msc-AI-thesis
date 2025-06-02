@@ -32,6 +32,10 @@ import time
 import socket
 import keyboard 
 import threading
+import torch.nn.functional as F
+from torch.utils.data import Subset, random_split
+from sklearn.metrics import classification_report, confusion_matrix
+import json
 
 from MSCOCO_preprocessing import prepare_data, MSCOCOCustomDataset, load_from_COCOAPI, show_image, retrieve_captions
 
@@ -395,6 +399,210 @@ if __name__ == "__main__":
 # 20 classes, 10, 20, 30 prototypes, 0.0001 lr, 70 epochs, 25 patience, resnet18, choose another encoder
 # vgg16 is being trained on PC, collect results later.
 # Start developing the multimodal PBN model
+
+# ===============================
+# New ProtoPNet Training / Testing Utilities (VGG16-style)
+# ===============================
+
+def train_protopnet(
+        model,
+        train_data,
+        val_data,
+        model_name,
+        device,
+        num_epochs=50,
+        learning_rate=0.0001,
+        batch_size=32,
+        lr_increment_rate=0.0001,
+        save_result=False,
+        early_stopping_patience=10,
+        lr_increase_patience=5,
+):
+    """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
+
+    Returns the path to the best model saved on validation accuracy.
+    """
+
+    if not os.path.exists("best_models"):
+        os.makedirs("best_models")
+    if not os.path.exists("results"):
+        os.makedirs("results")
+
+    model = model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+
+    # CSV header
+    if save_result:
+        with open(f"results/{model_name}_result.csv", "w") as f:
+            f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
+
+    best_accuracy = 0.0
+    current_lr = learning_rate
+    non_update = 0
+    lr_inc_count = 0
+
+    print("Starting ProtoPNet training…")
+    for epoch in range(num_epochs):
+        print(f"Epoch {epoch+1}/{num_epochs}")
+
+        # ---- Training ----
+        model.train()
+        train_start = time.time()
+        train_loss_sum = 0.0
+        train_correct = 0
+        train_total = 0
+
+        for i, (imgs, labels) in enumerate(train_loader):
+            imgs, labels = imgs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(imgs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            train_loss_sum += loss.item()
+            _, preds = outputs.max(1)
+            train_total += labels.size(0)
+            train_correct += preds.eq(labels).sum().item()
+
+            # Free mem periodically
+            del imgs, labels, outputs, preds
+            if i % 50 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        train_time = time.time() - train_start
+        train_loss_avg = train_loss_sum / len(train_loader)
+        train_acc = 100 * train_correct / train_total
+        print(f"Train Acc: {train_acc:.2f}%  Train Loss: {train_loss_avg:.4f}  Time: {train_time:.2f}s")
+
+        # ---- Validation ----
+        model.eval()
+        val_start = time.time()
+        val_loss_sum = 0.0
+        val_correct = 0
+        val_total = 0
+        with torch.no_grad():
+            for imgs, labels in val_loader:
+                imgs, labels = imgs.to(device), labels.to(device)
+                outputs = model(imgs)
+                loss = criterion(outputs, labels)
+                val_loss_sum += loss.item()
+                _, preds = outputs.max(1)
+                val_total += labels.size(0)
+                val_correct += preds.eq(labels).sum().item()
+                del imgs, labels, outputs, preds
+        val_time = time.time() - val_start
+        val_loss_avg = val_loss_sum / len(val_loader)
+        val_acc = 100 * val_correct / val_total
+        print(f"Val  Acc: {val_acc:.2f}%  Val Loss: {val_loss_avg:.4f}  Time: {val_time:.2f}s")
+
+        epoch_time = train_time + val_time
+
+        # ---- Early-stopping & LR schedule ----
+        if val_acc - best_accuracy > 0.01:
+            print("Model improved → saving")
+            best_accuracy = val_acc
+            non_update = 0
+            torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
+        else:
+            non_update += 1
+            print(f"No improvement for {non_update} epochs")
+
+        if non_update >= early_stopping_patience:
+            if lr_inc_count < lr_increase_patience:
+                current_lr += lr_increment_rate
+                for pg in optimizer.param_groups:
+                    pg['lr'] = current_lr
+                lr_inc_count += 1
+                non_update = 0
+                print(f"Learning-rate increased to {current_lr}")
+            else:
+                print("Early stopping triggered")
+                break
+
+        # ---- CSV logging ----
+        if save_result:
+            with open(f"results/{model_name}_result.csv", "a") as f:
+                f.write(f"{epoch+1},{train_loss_avg:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{epoch_time:.2f},{current_lr}\n")
+
+    print("Training complete!")
+    return f"best_models/{model_name}_best.pth"
+
+
+def test_protopnet(model_path, experiment_name, test_data, device, num_classes, save_result=False, verbose=False):
+    """Test a saved ProtoPNet model on held-out data (mirrors VGG16 test)."""
+
+    # Ensure result dirs
+    for d in ["results", "results/classification_reports", "results/confusion_matrices"]:
+        os.makedirs(d, exist_ok=True)
+
+    model = construct_PPNet(base_architecture='vgg16', pretrained=False, prototype_shape=(1,1,1,1), num_classes=num_classes)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=False)
+
+    label_names_idx = test_data.get_dataset_labels()
+    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+
+    y_true, y_pred, y_img_ids = [], [], []
+    confusion_mapping = {}
+
+    correct = 0
+    with torch.no_grad():
+        for idx, (img, label) in enumerate(test_loader):
+            img, label = img.to(device), label.to(device)
+            output = model(img)
+            _, pred = output.max(1)
+            t_int, p_int = label.item(), pred.item()
+            true_cls, pred_cls = idx_to_label[t_int], idx_to_label[p_int]
+            if t_int == p_int:
+                correct += 1
+            img_id = test_data.get_image_id(idx)
+            y_true.append(true_cls)
+            y_pred.append(pred_cls)
+            y_img_ids.append(img_id)
+            key = f"{t_int}_{p_int}"
+            confusion_mapping.setdefault(key, []).append(img_id)
+            if verbose:
+                print(f"Image {img_id} – True: {true_cls}, Pred: {pred_cls}")
+            del img, label, output, pred
+
+    acc = 100 * correct / len(test_loader.dataset)
+    print(f"Test Accuracy: {acc:.2f}%  ({correct}/{len(test_loader.dataset)})")
+
+    class_report = classification_report(y_true, y_pred, output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(idx_to_label.values()))
+    print(classification_report(y_true, y_pred))
+    print(conf_matrix)
+
+    results = {
+        'experiment_name': experiment_name,
+        'pth_filepath': model_path,
+        'accuracy': acc,
+        'confusion_matrix_images': confusion_mapping,
+        'classification_report': class_report,
+    }
+
+    if save_result:
+        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+            json.dump(results, f, indent=2)
+        pd.DataFrame(class_report).T.to_csv(
+            f"results/classification_reports/{experiment_name}_classification_report.csv")
+        pd.DataFrame(conf_matrix,
+                     index=list(idx_to_label.values()),
+                     columns=list(idx_to_label.values())).to_csv(
+                         f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+    return results
+
+# ===============================
+# (The legacy train_and_test function remains below but is no longer used.)
+# ===============================
 
 
 
