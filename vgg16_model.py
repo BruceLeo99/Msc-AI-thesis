@@ -149,6 +149,9 @@ def train_vgg16(
 
     if not os.path.exists(f"best_models"):
         os.makedirs(f"best_models")
+
+    if not os.path.exists(f"results"):
+        os.makedirs(f"results")
     
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
@@ -167,19 +170,19 @@ def train_vgg16(
     # Train model
     if save_result:
         with open(f"results/{model_name}_result.csv", "w") as f:
-            f.write("Epoch,Cross-Entropy Loss,Training Accuracy,Validation Accuracy,Time, Learning Rate\n")
+            f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     best_accuracy = 0
     current_lr = learning_rate
     non_update_count = 0
     lr_increase_count = 0
 
-    print("Start Training")
+    print("Start Training VGG16")
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1} of {num_epochs}")
         
         ### Training phase
-        start_time = time.time()
+        train_start_time = time.time()
         model.train()
         
         train_correct = 0
@@ -214,20 +217,26 @@ def train_vgg16(
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             
-        end_time = time.time()
-        time_spent = end_time - start_time
-        print(f"Epoch {epoch+1}, Cross-Entropy Loss: {loss.item()}, Training Accuracy: {train_accuracy:.2f}%, Time: {time_spent:.2f} seconds")
+        train_end_time = time.time()
+        train_time_spent = train_end_time - train_start_time
+        print(f"Epoch {epoch+1}, Train Loss: {loss.item()}, Train Accuracy: {train_accuracy:.2f}%, Time: {train_time_spent:.2f} seconds")
         
         ### Validation phase
         model.eval()
         with torch.no_grad():
             correct = 0
             total = 0
-            start_time = time.time()
+            val_loss_total = 0
+            val_start_time = time.time()
             for images, labels in val_loader:
                 images = images.to(device)
                 labels = labels.to(device)
                 outputs = model(images)
+                
+                # Calculate validation loss
+                val_loss = criterion(outputs, labels)
+                val_loss_total += val_loss.item()
+                
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
                 correct += predicted.eq(labels).sum().item()
@@ -239,14 +248,18 @@ def train_vgg16(
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 
-            end_time = time.time()
-            val_time = end_time - start_time
+            val_end_time = time.time()
+            val_time = val_end_time - val_start_time
             val_accuracy = 100 * correct / total
+            val_loss_avg = val_loss_total / len(val_loader)
             print(f"Accuracy of the model on the {total} validation images: {val_accuracy:.2f}%")
+            print(f"Validation Loss: {val_loss_avg:.4f}")
             print(f"Validation Time: {val_time:.2f} seconds")
 
+            ### Early Stopping & LR scheduling
             # Use validation accuracy for early stopping, then save and dynamically update the best model 
             if val_accuracy - best_accuracy > 0.01:
+                print("Model performance improved")
                 best_accuracy = val_accuracy
                 non_update_count = 0
 
@@ -256,6 +269,7 @@ def train_vgg16(
 
             else:
                 non_update_count += 1
+                print(f"Model performance did not improve for {non_update_count} times")
 
             # Increase learning rate if validation accuracy is not improving
             # Increase learning rate every 10 epochs 5 times in total. 
@@ -268,16 +282,19 @@ def train_vgg16(
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = learning_rate
                     lr_increase_count += 1
+                    non_update_count = 0
                     print(f"Learning rate increased to {learning_rate}")
                 else:
-                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy")
+                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
                     break
-
+        
+        # Calculate time spent for one epoch and save the result
+        epoch_time = train_time_spent + val_time
         if save_result:
             with open(f"results/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},{loss.item()},{train_accuracy:.2f},{val_accuracy:.2f},{time_spent:.2f},{current_lr}\n")
+                f.write(f"{epoch+1},{loss.item()},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f},{current_lr}\n")
     
-    # End of training loop
+    # End of training 
     print("Training Complete!")
     return f"best_models/{model_name}_best.pth"
 
@@ -295,6 +312,7 @@ def train_vgg16_with_CV(
         save_result = False,
         early_stopping_patience = 10,
         lr_increase_patience = 5,
+        random_state = 42
 ):
     
     """
@@ -315,9 +333,13 @@ def train_vgg16_with_CV(
         lr_increment_rate: Learning rate increment rate
         early_stopping_patience: Number of epochs to wait before early stopping
         lr_increase_patience: Number of epochs to wait before increasing learning rate
+        random_state: Random state for cross-validation. For reproducibility, set 42 by default.
     """
     if not os.path.exists(f"best_models"):
         os.makedirs(f"best_models")
+    
+    if not os.path.exists(f"results"):
+        os.makedirs(f"results")
 
     # Clear GPU cache before training
     if torch.cuda.is_available():
@@ -325,19 +347,18 @@ def train_vgg16_with_CV(
 
     print(f"Starting Training with {n_folds}-fold Cross-Validation.\nModel: VGG16 baseline with No Prototypes")
     
-    # Train model
     if save_result:
         with open(f"results/{model_name}_cv_result.csv", "w") as f:
-            f.write("Fold,Epoch,Cross-Entropy Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
+            f.write("Fold,Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     # Split data into K-Fold 
-    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
     
     fold_results = []
     
     for fold, (train_index, val_index) in enumerate(kfold.split(train_data)):
         print(f"\n{'='*60}")
-        print(f"FOLD {fold+1}/{n_folds}")
+        print(f"Start training for FOLD {fold+1}/{n_folds}")
         print(f"{'='*60}")
 
         # Create fresh model for each fold
@@ -347,7 +368,7 @@ def train_vgg16_with_CV(
         optimizer = optim.Adam(fold_model.parameters(), lr=learning_rate)
 
         # Training variables for this fold
-        best_fold_accuracy = 0
+        best_val_accuracy = 0
         current_lr = learning_rate
         non_update_count = 0
         lr_increase_count = 0
@@ -365,7 +386,7 @@ def train_vgg16_with_CV(
             print(f"Fold {fold+1}, Epoch {epoch+1}/{num_epochs}")
 
             ### Training phase
-            start_time = time.time()
+            train_start_time = time.time()
             fold_model.train()
             train_correct = 0
             train_total = 0
@@ -402,19 +423,29 @@ def train_vgg16_with_CV(
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
-            train_time = time.time() - start_time
+            train_end_time = time.time()
+            train_time_spent = train_end_time - train_start_time
+
+            print(f"Train Acc: {train_accuracy:.2f}%, Loss: {avg_loss:.4f}")
+            print(f"Train Time: {train_time_spent:.2f}s")
                 
             ### Validation phase
-            start_time = time.time()
+            val_start_time = time.time()
             fold_model.eval()
             val_correct = 0
             val_total = 0
+            val_loss_total = 0
 
             with torch.no_grad():
                 for images, labels in val_loader:
                     images = images.to(device)
                     labels = labels.to(device)
                     outputs = fold_model(images)
+                    
+                    # Calculate validation loss
+                    val_loss = criterion(outputs, labels)
+                    val_loss_total += val_loss.item()
+                    
                     _, predicted = outputs.max(1)
                     val_total += labels.size(0)
                     val_correct += predicted.eq(labels).sum().item()
@@ -428,14 +459,20 @@ def train_vgg16_with_CV(
             
             # Calculate validation accuracy for this epoch
             val_accuracy = 100 * val_correct / val_total
-            val_time = time.time() - start_time
+            val_loss_avg = val_loss_total / len(val_loader)
+            val_end_time = time.time()
+            val_time = val_end_time - val_start_time
             
-            print(f"Train Acc: {train_accuracy:.2f}%, Val Acc: {val_accuracy:.2f}%, Loss: {avg_loss:.4f}")
-            print(f"Train Time: {train_time:.2f}s, Val Time: {val_time:.2f}s")
+            print(f"Val Acc: {val_accuracy:.2f}%, Val Loss: {val_loss_avg:.4f}")
+            print(f"Val Time: {val_time:.2f}s")
 
-            # Early stopping and model saving for this fold (SAME AS ORIGINAL)
-            if val_accuracy - best_fold_accuracy > 0.01:
-                best_fold_accuracy = val_accuracy
+            epoch_time = train_time_spent + val_time
+            print(f"Time for this epoch: {epoch_time:.2f}s")
+
+            ### Early stopping and model saving for this fold (SAME AS ORIGINAL)
+            if val_accuracy - best_val_accuracy > 0.01:
+                print("Model performance improved")
+                best_val_accuracy = val_accuracy
                 non_update_count = 0
 
                 # Save best model for this fold
@@ -443,6 +480,7 @@ def train_vgg16_with_CV(
                 print(f"Best model saved for fold {fold+1}")
             else:
                 non_update_count += 1
+                print(f"Model performance did not improve for {non_update_count} times")
 
             # Learning rate increment mechanism (SAME AS ORIGINAL)
             if non_update_count >= early_stopping_patience:
@@ -452,7 +490,7 @@ def train_vgg16_with_CV(
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = current_lr
                     lr_increase_count += 1
-                    print(f" Learning rate increased to {current_lr}")
+                    print(f"Learning rate increased to {current_lr}")
                     non_update_count = 0  # Reset counter after LR increase
                 else:
                     print(f"Early stopping at epoch {epoch+1} for fold {fold+1}")
@@ -460,16 +498,16 @@ def train_vgg16_with_CV(
             
             if save_result:
                 with open(f"results/{model_name}_cv_result.csv", "a") as f:
-                    f.write(f"{fold+1},{epoch+1},{avg_loss:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{train_time:.2f},{current_lr}\n")
+                    f.write(f"{fold+1},{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f},{current_lr}\n")
         
         # Store fold results
         fold_results.append({
             'fold': fold + 1,
-            'best_val_accuracy': best_fold_accuracy,
+            'best_val_accuracy': best_val_accuracy,
             'model_path': f"{model_name}_fold{fold+1}_best.pth"
         })
         
-        print(f"Fold {fold + 1} completed. Best Val Accuracy: {best_fold_accuracy:.2f}%")
+        print(f"Fold {fold + 1} completed. Best Val Accuracy: {best_val_accuracy:.2f}%")
     
     # Calculate cross-validation statistics
     val_accuracies = [result['best_val_accuracy'] for result in fold_results]
@@ -533,11 +571,9 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
     y_true = []
     y_pred = []
 
-    # Dictionary of indices
-    tp_indices, fp_indices, tn_indices, fn_indices = {}, {}, {}, {}
     
     # Confusion matrix image mapping: (true_class, predicted_class) -> list of image details
-    confusion_matrix_images = {}
+    confusion_matrix_for_each_individual = {}
 
     print("Starting model testing...")
     label_names_idx = test_data.get_dataset_labels()
@@ -575,9 +611,9 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
                 y_pred.append(pred_class)
                 
                 # Create confusion matrix mapping
-                cell_key = (true_class, pred_class)
-                if cell_key not in confusion_matrix_images:
-                    confusion_matrix_images[cell_key] = []
+                cell_key = f"{t_int}_{p_int}"
+                if cell_key not in confusion_matrix_for_each_individual:
+                    confusion_matrix_for_each_individual[cell_key] = []
                 
                 # Store comprehensive image information
                 image_info = {
@@ -588,7 +624,7 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
                     'pred_label': pred_class,
                     'correct': true_class == pred_class
                 }
-                confusion_matrix_images[cell_key].append(image_info)
+                confusion_matrix_for_each_individual[cell_key].append(image_info)
 
                 if verbose:
                     print(f"Image ID: {image_id}, Image Label: {image_label}, Image URL: {image_url}, Image Caption: {image_caption}")
@@ -624,42 +660,6 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
     print("\nConfusion Matrix:")
     print(conf_matrix)
 
-    # Print confusion matrix image mapping summary
-    print(f"\n{'='*60}")
-    print("CONFUSION MATRIX IMAGE MAPPING SUMMARY")
-    print(f"{'='*60}")
-    
-    correct_cells = 0
-    total_cells = 0
-    misclassification_patterns = []
-    
-    for (true_class, pred_class), images in confusion_matrix_images.items():
-        count = len(images)
-        total_cells += count
-        
-        if true_class == pred_class:
-            correct_cells += count
-            print(f"✅ {true_class} → {pred_class}: {count} images (CORRECT)")
-        else:
-            print(f"❌ {true_class} → {pred_class}: {count} images (MISCLASSIFIED)")
-            misclassification_patterns.append({
-                'true_class': true_class,
-                'pred_class': pred_class,
-                'count': count,
-                'image_ids': [img['image_id'] for img in images]
-            })
-    
-    print(f"\nSummary:")
-    print(f"  Total images: {total_cells}")
-    print(f"  Correctly classified: {correct_cells}")
-    print(f"  Misclassified: {total_cells - correct_cells}")
-    print(f"  Accuracy: {(correct_cells/total_cells)*100:.2f}%")
-    
-    if misclassification_patterns:
-        print(f"\nTop Misclassification Patterns:")
-        sorted_patterns = sorted(misclassification_patterns, key=lambda x: x['count'], reverse=True)
-        for i, pattern in enumerate(sorted_patterns[:5], 1):
-            print(f"  {i}. {pattern['true_class']} misclassified as {pattern['pred_class']}: {pattern['count']} images")
 
     test_result = {
         'experiment_name': experiment_name,
@@ -667,6 +667,7 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
         'label_names_idx': label_names_idx,
         'idx_to_label': idx_to_label,
         'test_accuracy': test_accuracy,
+        'confusion_matrix_for_each_individual': confusion_matrix_for_each_individual,
         'individual_prediction_results': individual_prediction_results
     }
 
@@ -674,13 +675,7 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
         with open(f"results/{experiment_name}_test_result.json", "w") as f:
             json.dump(test_result, f)
             
-        # # Save confusion matrix image mapping separately for easier analysis
-        # with open(f"results/{experiment_name}_confusion_matrix_images.json", "w") as f:
-        #     json.dump(confusion_matrix_images, f, indent=2)
-            
-        # # Save misclassification patterns summary
-        # with open(f"results/{experiment_name}_misclassification_patterns.json", "w") as f:
-        #     json.dump(misclassification_patterns, f, indent=2)
+
 
         df_classification_report = pd.DataFrame(classi_report).T
         # The classification report already has proper row names, just ensure they're clean
@@ -700,6 +695,7 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
     return test_result
 
 if __name__ == "__main__":
+    ###### TODO: Learning rate increment function debug: add not update count also if the model performance became worse
     # Create results directory if it doesn't exist
     if not os.path.exists('results'):
         os.makedirs('results')

@@ -101,13 +101,33 @@ def train_resnet18(
         early_stopping_patience=10,
         lr_increase_patience=5,
 ):
-    """Train ResNet18 on provided train/val splits (no cross-validation).
-    Mirrors the behaviour of train_vgg16 in vgg16_model.py so that the same CLI
+    """
+    Train ResNet18 on provided train/val splits (no cross-validation).
+    Mirrors the behaviour of train_resnet18 in resnet18_model.py so that the same CLI
     arguments & logging strategy work for both backbones.
-    Returns the filepath of the best model saved on validation accuracy."""
+
+    Args:
+        model: The model to train.
+        train_data: The training data.
+        val_data: The validation data.
+        model_name: The name of the model.
+        device: The device to train on.
+        num_epochs: The number of epochs to train for.
+        learning_rate: The learning rate to use.
+        batch_size: The batch size to use.
+        lr_increment_rate: The learning rate increment rate.
+        save_result: Whether to save the results.
+        early_stopping_patience: The early stopping patience.
+        lr_increase_patience: The learning rate increase patience.
+
+    Returns the filepath of the best model saved on validation accuracy.
+    """
 
     if not os.path.exists("best_models"):
         os.makedirs("best_models")
+    
+    if not os.path.exists("results"):
+        os.makedirs("results")
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -117,12 +137,11 @@ def train_resnet18(
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(val_data, shuffle=False)
 
     if save_result:
-        os.makedirs("results", exist_ok=True)
         with open(f"results/{model_name}_result.csv", "w") as f:
-            f.write("Epoch,Loss,Train Acc,Val Acc,Time(s),Learning Rate\n")
+             f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     best_accuracy = 0.0
     current_lr = learning_rate
@@ -132,11 +151,13 @@ def train_resnet18(
     print("Starting Training – ResNet18")
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}/{num_epochs}")
-        start_time = time.time()
+
+        ### Training Phase
+        train_start_time = time.time()
         model.train()
         running_loss = 0.0
-        correct = 0
-        total = 0
+        train_correct = 0
+        train_total = 0
         for i, (images, labels) in enumerate(train_loader):
             images = images.to(device)
             labels = labels.to(device)
@@ -148,58 +169,78 @@ def train_resnet18(
 
             running_loss += loss.item()
             _, predicted = outputs.max(1)
-            total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
+            train_total += labels.size(0)
+            train_correct += predicted.eq(labels).sum().item()
 
             del images, labels, outputs, predicted
             if i % 50 == 0 and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-        train_acc = 100 * correct / total
+        train_acc = 100 * train_correct / train_total
         avg_loss = running_loss / len(train_loader)
-        train_time = time.time() - start_time
+        train_time_spent = time.time() - train_start_time
+        print(f"Epoch {epoch+1}, Cross-Entropy Loss: {loss.item()}, Training Accuracy: {train_acc:.2f}%, Time: {train_time_spent:.2f} seconds")
 
-        # Validation
+        ### Validation Phase
+        val_start_time = time.time()
         model.eval()
         val_correct = 0
         val_total = 0
+        val_loss_total = 0
         with torch.no_grad():
             for images, labels in val_loader:
                 images = images.to(device)
                 labels = labels.to(device)
                 outputs = model(images)
+                
+                # Calculate validation loss
+                val_loss = criterion(outputs, labels)
+                val_loss_total += val_loss.item()
+                
                 _, predicted = outputs.max(1)
                 val_total += labels.size(0)
                 val_correct += predicted.eq(labels).sum().item()
                 del images, labels, outputs, predicted
         val_acc = 100 * val_correct / val_total
-        print(f"Train Acc: {train_acc:.2f}%, Val Acc: {val_acc:.2f}%, Loss: {avg_loss:.4f}, Time: {train_time:.2f}s")
+        val_loss_avg = val_loss_total / len(val_loader)
+        val_time_spent = time.time() - val_start_time
+        print(f"Epoch {epoch+1}, Validation Accuracy: {val_acc:.2f}%, Time: {val_time_spent:.2f} seconds")
+        print(f"Validation Loss: {val_loss_avg:.4f}")
 
-        # Early stopping & LR scheduling (same logic as VGG)
+        # Early stopping & LR scheduling 
         if val_acc - best_accuracy > 0.01:
+            print("Model performance improved")
             best_accuracy = val_acc
             non_update_count = 0
             torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
             print(f"Saved best model to best_models/{model_name}_best.pth")
         else:
             non_update_count += 1
+            print(f"Model performance did not improve for {non_update_count} times")
 
+        # Increase learning rate if validation accuracy is not improving
+        # Increase learning rate every 10 epochs 5 times in total. 
+        # After 5 times, if the model still does not improve, stop training.
         if non_update_count >= early_stopping_patience:
             if lr_increase_count < lr_increase_patience:
-                current_lr += lr_increment_rate
-                for pg in optimizer.param_groups:
-                    pg['lr'] = current_lr
+                learning_rate += lr_increment_rate
+                current_lr = learning_rate
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = learning_rate
                 lr_increase_count += 1
                 non_update_count = 0
-                print(f"Learning rate increased to {current_lr}")
+                print(f"Learning rate increased to {learning_rate}")
             else:
-                print(f"Early stopping at epoch {epoch + 1}")
+                print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
                 break
 
+        # Calculate time spent for one epoch and save the result
+        time_epoch_spent = train_time_spent + val_time_spent
         if save_result:
             with open(f"results/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},{avg_loss:.4f},{train_acc:.2f},{val_acc:.2f},{train_time:.2f},{current_lr}\n")
+                f.write(f"{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{time_epoch_spent:.2f},{current_lr}\n")
 
+    # End of training
     print("Training complete!")
     return f"best_models/{model_name}_best.pth"
 
@@ -217,26 +258,55 @@ def train_resnet18_with_CV(
         save_result=False,
         early_stopping_patience=10,
         lr_increase_patience=5,
+        random_state=42,
 ):
-    """K-fold cross-validation training for ResNet18, mirroring vgg16 logic."""
+    """
+    Trains a ResNet18 model with K-Fold Cross-Validation on the training set and validates it on the validation set.
+    Only training data needed to be passed, which will be split into K-Fold train-validation set pairs.
+    Returns the path to the best model.
 
-    if not os.path.exists("best_models"):
-        os.makedirs("best_models")
+    Args:
+        model: ResNet18 model to train
+        train_data: Training data
+        n_val_splits: Number of folds for cross-validation
+        num_epochs: Number of epochs to train
+        learning_rate: Learning rate for training
+        model_name: Name of the model
+        device: Device to use for training
+        batch_size: Batch size for training
+        save_result: Whether to save the result
+        lr_increment_rate: Learning rate increment rate
+        early_stopping_patience: Number of epochs to wait before early stopping
+        lr_increase_patience: Number of epochs to wait before increasing learning rate
+        random_state: Random state for cross-validation. For reproducibility, set 42 by default.
+    """
+
+    if not os.path.exists(f"best_models"):
+        os.makedirs(f"best_models")
+    
+    if not os.path.exists(f"results"):
+        os.makedirs(f"results")
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    if save_result:
-        os.makedirs("results", exist_ok=True)
-        with open(f"results/{model_name}_cv_result.csv", "w") as f:
-            f.write("Fold,Epoch,Loss,Train Acc,Val Acc,Time(s),Learning Rate\n")
+    print(f"Starting Training with {n_folds}-fold Cross-Validation.\nModel: ResNet18 baseline")
 
-    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+    if save_result:
+        with open(f"results/{model_name}_cv_result.csv", "w") as f:
+            f.write("Fold,Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
+
+    
+    # Split data into K-fold
+    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
     fold_results = []
 
     for fold, (train_idx, val_idx) in enumerate(kfold.split(train_data)):
-        print(f"\n{'='*60}\nFOLD {fold+1}/{n_folds}\n{'='*60}")
+        print(f"\n{'='*60}\nStart training for FOLD {fold+1}/{n_folds}\n{'='*60}")
 
-        fold_model = ResNet18(num_classes=model.fc.out_features).to(device)
+        # Initialize model for each fold
+        num_classes = model.fc.out_features
+        fold_model = ResNet18(num_classes=num_classes).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(fold_model.parameters(), lr=learning_rate)
 
@@ -245,19 +315,23 @@ def train_resnet18_with_CV(
         train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
 
-        best_val_acc = 0.0
+        best_val_accuracy = 0.0
         current_lr = learning_rate
         non_update = 0
         lr_inc_count = 0
 
         for epoch in range(num_epochs):
             print(f"Fold {fold+1} — Epoch {epoch+1}/{num_epochs}")
-            start_time = time.time()
+
+            ### Training Phase
+            train_start_time = time.time()
             fold_model.train()
-            running_loss = 0.0
-            correct = 0
-            total = 0
-            for images, labels in train_loader:
+            epoch_loss = 0.0
+            train_correct = 0
+            train_total = 0
+
+            #Backpropagation and minibatch SGD
+            for i, (images, labels) in enumerate(train_loader):
                 images = images.to(device)
                 labels = labels.to(device)
                 optimizer.zero_grad()
@@ -265,59 +339,101 @@ def train_resnet18_with_CV(
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
-                running_loss += loss.item()
-                _, pred = outputs.max(1)
-                total += labels.size(0)
-                correct += pred.eq(labels).sum().item()
-                del images, labels, outputs, pred
-            train_acc = 100 * correct / total
-            avg_loss = running_loss / len(train_loader)
-            train_time = time.time() - start_time
 
-            # Validation
+                # Calculate loss and accuracy
+                epoch_loss += loss.item()
+                _, pred = outputs.max(1)
+                train_total += labels.size(0)
+                train_correct += pred.eq(labels).sum().item()
+
+                # Clear GPU cache periodically during training
+                if i % 50 == 0 and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                # Clear variables to free memory
+                del images, labels, outputs, pred   
+
+            # Calculate training accuracy and loss
+            train_acc = 100 * train_correct / train_total
+            avg_loss = epoch_loss / len(train_loader)
+            train_time_spent = time.time() - train_start_time
+
+            # Clear GPU cache after training phase
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            print(f"Train Acc: {train_acc:.2f}%, Loss: {avg_loss:.4f}")
+            print(f"Train Time: {train_time_spent:.2f}s")
+
+            ### Validation Phase
+            val_start_time = time.time()
             fold_model.eval()
-            val_corr = 0
-            val_tot = 0
+            val_correct = 0
+            val_total = 0
+            val_loss_total = 0
             with torch.no_grad():
                 for images, labels in val_loader:
                     images = images.to(device)
                     labels = labels.to(device)
                     outputs = fold_model(images)
+                    
+                    # Calculate validation loss
+                    val_loss = criterion(outputs, labels)
+                    val_loss_total += val_loss.item()
+                    
                     _, pred = outputs.max(1)
-                    val_tot += labels.size(0)
-                    val_corr += pred.eq(labels).sum().item()
-                    del images, labels, outputs, pred
-            val_acc = 100 * val_corr / val_tot
-            print(f"Train {train_acc:=.2f}%, Val {val_acc:=.2f}%, Loss {avg_loss:.4f}")
 
-            # Early stop & LR schedule
-            if val_acc - best_val_acc > 0.01:
-                best_val_acc = val_acc
+                    # Calculate validation accuracy and loss
+                    val_total += labels.size(0)
+                    val_correct += pred.eq(labels).sum().item()
+
+                    # Clear variables to free memory
+                    del images, labels, outputs, pred
+
+            # Clear GPU cache after validation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            val_acc = 100 * val_correct / val_total
+            val_loss_avg = val_loss_total / len(val_loader)
+            val_time_spent = time.time() - val_start_time
+            print(f"Val Acc: {val_acc:.2f}%, Val Loss: {val_loss_avg:.4f}")
+            print(f"Val Time: {val_time_spent:.2f}s")
+
+            ### Early stop & LR schedule
+            if val_acc - best_val_accuracy > 0.01:
+                print("Model improved")
+                best_val_accuracy = val_acc
                 non_update = 0
                 torch.save(fold_model.state_dict(), f"best_models/{model_name}_fold{fold+1}_best.pth")
+                print(f"Saved best model to best_models/{model_name}_fold{fold+1}_best.pth")
             else:
                 non_update += 1
+                print(f"Model performance did not improve for {non_update} times")
 
             if non_update >= early_stopping_patience:
                 if lr_inc_count < lr_increase_patience:
-                    current_lr += lr_increment_rate
-                    for pg in optimizer.param_groups:
-                        pg['lr'] = current_lr
+                    learning_rate += lr_increment_rate
+                    current_lr = learning_rate
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = learning_rate
                     lr_inc_count += 1
                     non_update = 0
-                    print(f"LR increased to {current_lr}")
+                    print(f"Learning rate increased to {learning_rate}")
                 else:
-                    print("Early stopping this fold")
+                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
                     break
 
+            # Calculate time spent for one epoch and save the result
+            time_epoch_spent = train_time_spent + val_time_spent
             if save_result:
                 with open(f"results/{model_name}_cv_result.csv", "a") as f:
-                    f.write(f"{fold+1},{epoch+1},{avg_loss:.4f},{train_acc:.2f},{val_acc:.2f},{train_time:.2f},{current_lr}\n")
+                    f.write(f"{fold+1},{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{time_epoch_spent:.2f},{current_lr}\n")
 
-        fold_results.append({'fold': fold+1, 'best_val_accuracy': best_val_acc, 'model_path': f"best_models/{model_name}_fold{fold+1}_best.pth"})
-        print(f"Fold {fold+1} best Val Acc: {best_val_acc:.2f}%")
+        fold_results.append({'fold': fold+1, 'best_val_accuracy': best_val_accuracy, 'model_path': f"best_models/{model_name}_fold{fold+1}_best.pth"})
+        print(f"Fold {fold+1} best Val Acc: {best_val_accuracy:.2f}%")
 
-    # CV stats
+    # CV stats and save CV summary
     val_accs = [fr['best_val_accuracy'] for fr in fold_results]
     print(f"\n{'='*60}\nCROSS-VALIDATION RESULTS\n{'='*60}")
     for fr in fold_results:
@@ -327,85 +443,170 @@ def train_resnet18_with_CV(
     if save_result:
         pd.DataFrame(fold_results).to_csv(f"results/{model_name}_cv_summary.csv", index=False)
 
-    # return best model path of the last fold (user can decide)
-    return fold_results[-1]['model_path']
+        with open(f"results/{model_name}_cv_stats.txt", "w") as f:
+            f.write(f"{n_folds}-Fold Cross-Validation Results\n")
+            f.write(f"Mean Accuracy: {np.mean(val_accs):.2f}%\n")
+            f.write(f"Standard Deviation: {np.std(val_accs):.2f}%\n")
+            f.write(f"Min Accuracy: {min(val_accs):.2f}%\n")
+            f.write(f"Max Accuracy: {max(val_accs):.2f}%\n")
+
+    return "best_models/{model_name}_fold{fold+1}_best.pth"
 
 
-def test_resnet18(model_path, experiment_name, test_data, device, num_classes, save_result=False, verbose=False):
-    """Evaluate a saved ResNet18 model on test_data, returning accuracy and confusion-matrix mapping (mirrors vgg16 test)."""
+def test_resnet18(model_path, experiment_name, test_data, device, num_classes, positive_class: int = 1, save_result=False, verbose=False):
+    """
+    Loads a trained ResNet18 model from a .pth file and tests it on the test set.
+    Additionally returns image-index lists for TP, FP, TN, FN (binary-class assumption).
+    Args:
+        model_path: Path to saved model
+        test_data: Dataset to evaluate
+        device: torch device
+        num_classes: total number of classes in the model
+        positive_class: which class id is treated as the "positive" class for TP/FP definitions
+    Returns
+        test_accuracy, dict with keys 'tp','fp','tn','fn' mapping to lists of sample indices
+    """
 
-    if not os.path.exists("results"):
-        os.makedirs("results")
-    if not os.path.exists("results/classification_reports"):
-        os.makedirs("results/classification_reports")
-    if not os.path.exists("results/confusion_matrices"):
-        os.makedirs("results/confusion_matrices")
+    if not os.path.exists(f"results/classification_reports"):
+        os.makedirs(f"results/classification_reports")
+
+    if not os.path.exists(f"results/confusion_matrices"):
+        os.makedirs(f"results/confusion_matrices")
 
     model = ResNet18(num_classes=num_classes).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path))
+    test_loader = DataLoader(test_data, shuffle=False)
     model.eval()
 
-    test_loader = DataLoader(test_data, batch_size=1, shuffle=False)
+    test_correct = 0
+    test_total = 0
 
-    label_names_idx = test_data.get_dataset_labels()
-    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
-
+    y_img_ids = []
     y_true = []
     y_pred = []
-    y_img_ids = []
-    confusion_images = {}
 
-    correct_total = 0
+    
+    # Confusion matrix image mapping: (true_class, predicted_class) -> list of image details
+    confusion_matrix_for_each_individual = {}
+
+    print("Starting model testing...")
+    label_names_idx = test_data.get_dataset_labels()
+    print(f"Label names and indices: {label_names_idx}")
+    
+    # Create reverse mapping from index to name
+    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+    print(f"Index to label mapping: {idx_to_label}")
+
     with torch.no_grad():
-        for idx, (img, label) in enumerate(test_loader):
-            img = img.to(device)
-            label = label.to(device)
-            output = model(img)
-            _, pred = output.max(1)
-            true_idx = label.item()
-            pred_idx = pred.item()
-            true_cls = idx_to_label[true_idx]
-            pred_cls = idx_to_label[pred_idx]
-            correct_total += int(true_idx == pred_idx)
+        for idx, (images, labels) in enumerate(test_loader):
+            image_id = test_data.get_image_id(idx)
+            image_label = test_data.get_image_label(idx)
+            image_url = test_data.get_image_url(idx)
+            image_caption = test_data.get_image_caption(idx)
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+            _, predicted = outputs.max(1)
 
-            y_true.append(true_cls)
-            y_pred.append(pred_cls)
-            img_id = test_data.get_image_id(idx)
-            y_img_ids.append(img_id)
-            key = (true_cls, pred_cls)
-            confusion_images.setdefault(key, []).append(img_id)
+            test_total += labels.size(0)
+            test_correct += predicted.eq(labels).sum().item()
 
-            if verbose:
-                print(f"Image {img_id} – True: {true_cls}, Pred: {pred_cls}")
-            del img, label, output, pred
-    total = len(test_loader.dataset)
-    acc = 100 * correct_total / total
-    print(f"Test Accuracy: {acc:.2f}% ({correct_total}/{total})")
+            for p, t in zip(predicted, labels):
+                # Convert tensors to integers
+                p_int = p.item()
+                t_int = t.item()
+                
+                # Get class names
+                true_class = idx_to_label[t_int]
+                pred_class = idx_to_label[p_int]
 
-    # Classification report & confusion matrix
-    class_report = classification_report(y_true, y_pred, output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(idx_to_label.values()))
-    print(classification_report(y_true, y_pred))
+                y_img_ids.append(image_id)
+                y_true.append(true_class)
+                y_pred.append(pred_class)
+                
+                # Create confusion matrix mapping
+                cell_key = f"{t_int}_{p_int}"
+                if cell_key not in confusion_matrix_for_each_individual:
+                    confusion_matrix_for_each_individual[cell_key] = []
+                
+                # Store comprehensive image information
+                image_info = {
+                    'image_id': image_id,
+                    'image_url': image_url,
+                    'image_caption': image_caption,
+                    'true_label': true_class,
+                    'pred_label': pred_class,
+                    'correct': true_class == pred_class
+                }
+                confusion_matrix_for_each_individual[cell_key].append(image_info)
+
+                if verbose:
+                    print(f"Image ID: {image_id}, Image Label: {image_label}, Image URL: {image_url}, Image Caption: {image_caption}")
+                    print(f"Predicted: {pred_class}, True: {true_class}")
+
+            # Free memory
+            del images, labels, outputs, predicted
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    test_accuracy = 100 * test_correct / test_total
+
+    individual_prediction_results = dict()
+
+    for test_image_id, test_label, test_pred in zip(y_img_ids, y_true, y_pred):
+        individual_prediction_results[test_image_id] = {
+            'true_label': test_label,
+            'pred_label': test_pred
+        }
+
+    print(f"\n{'='*60}")
+    print("TEST RESULTS")
+    print(f"{'='*60}")
+    print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
+
+    classi_report = classification_report(y_true, y_pred, target_names=list(idx_to_label.values()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred)
+
+    print("\nClassification Report:")
+    print(classi_report)
+
+    print("\nConfusion Matrix:")
     print(conf_matrix)
 
-    results_dict = {
+
+    test_result = {
         'experiment_name': experiment_name,
-        'model_path': model_path,
-        'accuracy': acc,
-        'confusion_matrix_images': confusion_images,
-        'classification_report': class_report,
+        'pth_filepath': model_path,
+        'label_names_idx': label_names_idx,
+        'idx_to_label': idx_to_label,
+        'test_accuracy': test_accuracy,
+        'confusion_matrix_for_each_individual': confusion_matrix_for_each_individual,
+        'individual_prediction_results': individual_prediction_results
     }
 
     if save_result:
-        # JSON
-        with open(f"results/{experiment_name}_resnet18_test.json", "w") as f:
-            json.dump(results_dict, f, indent=2)
-        # CSV outputs
-        pd.DataFrame(class_report).T.to_csv(f"results/classification_reports/{experiment_name}_resnet18_classification_report.csv")
-        cm_df = pd.DataFrame(conf_matrix, index=list(idx_to_label.values()), columns=list(idx_to_label.values()))
-        cm_df.to_csv(f"results/confusion_matrices/{experiment_name}_resnet18_confusion_matrix.csv")
+        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+            json.dump(test_result, f)
+            
 
-    return results_dict
+
+        df_classification_report = pd.DataFrame(classi_report).T
+        # The classification report already has proper row names, just ensure they're clean
+        df_classification_report.index.name = 'Class'
+        df_classification_report.to_csv(f"results/classification_reports/{experiment_name}_classification_report.csv")
+
+        # For confusion matrix, add proper labels
+        df_confusion_matrix = pd.DataFrame(conf_matrix)
+        # Set row and column labels to class names
+        class_names = list(idx_to_label.values())
+        df_confusion_matrix.index = class_names
+        df_confusion_matrix.columns = class_names
+        df_confusion_matrix.index.name = 'True Label'
+        df_confusion_matrix.columns.name = 'Predicted Label'
+        df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+
+    return test_result
 
 if __name__ == "__main__":
     # Create results directory if it doesn't exist
@@ -465,14 +666,14 @@ if __name__ == "__main__":
     #     prechosen_categories_csv_path, 
     #     'train', 
     #     split_val=False,
-    #     transform="vgg16",  # This will apply VGG16 transforms
+    #     transform="resnet18",  # This will apply resnet18 transforms
     #     target_transform="integer"  # This will convert labels to integers
     # )
 
     # test_data = prepare_data_from_preselected_categories(
     #     prechosen_categories_csv_path, 
     #     'test',
-    #     transform="vgg16",  # This will apply VGG16 transforms
+    #     transform="resnet18",  # This will apply resnet18 transforms
     #     target_transform="integer"  # This will convert labels to integers
     # )
 
@@ -504,7 +705,7 @@ if __name__ == "__main__":
 
 
     ### Train with CV
-    # best_model_path2 = train_vgg16_with_CV(model2, 
+    # best_model_path2 = train_resnet18_with_CV(model2, 
     #                                        train_data, 
     #                                        num_folds, 
     #                                        num_epochs, 
@@ -517,4 +718,4 @@ if __name__ == "__main__":
     #                                        early_stopping_patience=early_stopping_patience,
     #                                        lr_increase_patience=lr_increase_patience)
     
-    # test_vgg16(best_model_path2, test_data, device, num_classes)
+    # test_resnet18(best_model_path2, test_data, device, num_classes)
