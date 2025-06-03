@@ -1,7 +1,7 @@
 import time
 import torch
 
-from helpers import list_of_distances, make_one_hot
+from ProtoPNet.helpers import list_of_distances, make_one_hot
 
 def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l1_mask=True,
                    coefs=None, log=print, get_full_results=False):
@@ -50,7 +50,6 @@ def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l
 
                 # prototypes_of_correct_class is a tensor of shape batch_size * num_prototypes
                 # calculate cluster cost
-                # prototypes_of_correct_class = torch.t(model.module.prototype_class_identity[:,label]).cuda()
                 prototypes_of_correct_class = torch.t(model.module.prototype_class_identity[:,label]).to(device)
                 inverted_distances, _ = torch.max((max_dist - min_distances) * prototypes_of_correct_class, dim=1)
                 cluster_cost = torch.mean(max_dist - inverted_distances)
@@ -68,12 +67,11 @@ def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l
                 
                 if use_l1_mask:
                     l1_mask = 1 - torch.t(model.module.prototype_class_identity).to(device)
-                    # l1_mask = 1 - torch.t(model.module.prototype_class_identity).cuda()
                     m = model.module if hasattr(model, 'module') else model
                     l1 = (m.last_layer.weight * l1_mask).norm(p=1)
                 else:
                     m = model.module if hasattr(model, 'module') else model
-                    l1 = m.last_layer.weight.norm(p=1) 
+                    l1 = m.last_layer.weight.norm(p=1)
 
             else:
                 min_distance, _ = torch.min(min_distances, dim=1)
@@ -119,6 +117,9 @@ def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l
         del predicted
         del min_distances
 
+        if i % 50 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     end = time.time()
 
     # save the results
@@ -163,7 +164,7 @@ def train(model, dataloader, optimizer, class_specific=False, coefs=None, log=pr
                           class_specific=class_specific, coefs=coefs, log=log, get_full_results=get_full_results)
 
 
-def test(model, dataloader, class_specific=False, log=print, get_full_results=False):
+def validate(model, dataloader, class_specific=False, log=print, get_full_results=False):
     log('\ttest')
     model.eval()
     return _train_or_test(model=model, dataloader=dataloader, optimizer=None,
@@ -171,36 +172,36 @@ def test(model, dataloader, class_specific=False, log=print, get_full_results=Fa
 
 
 def last_only(model, log=print):
-    for p in model.module.features.parameters():
+    for p in model.modules.features.parameters():
         p.requires_grad = False
-    for p in model.module.add_on_layers.parameters():
+    for p in model.modules.add_on_layers.parameters():
         p.requires_grad = False
-    model.module.prototype_vectors.requires_grad = False
-    for p in model.module.last_layer.parameters():
+    model.modules.prototype_vectors.requires_grad = False
+    for p in model.modules.last_layer.parameters():
         p.requires_grad = True
     
     log('\tlast layer')
 
 
 def warm_only(model, log=print):
-    for p in model.module.features.parameters():
+    for p in model.modules.features.parameters():
         p.requires_grad = False
-    for p in model.module.add_on_layers.parameters():
+    for p in model.modules.add_on_layers.parameters():
         p.requires_grad = True
-    model.module.prototype_vectors.requires_grad = True
-    for p in model.module.last_layer.parameters():
+    model.modules.prototype_vectors.requires_grad = True
+    for p in model.modules.last_layer.parameters():
         p.requires_grad = True
     
     log('\twarm')
 
 
 def joint(model, log=print):
-    for p in model.module.features.parameters():
+    for p in model.modules.features.parameters():
         p.requires_grad = True
-    for p in model.module.add_on_layers.parameters():
+    for p in model.modules.add_on_layers.parameters():
         p.requires_grad = True
-    model.module.prototype_vectors.requires_grad = True
-    for p in model.module.last_layer.parameters():
+    model.modules.prototype_vectors.requires_grad = True
+    for p in model.modules.last_layer.parameters():
         p.requires_grad = True
     
     log('\tjoint')

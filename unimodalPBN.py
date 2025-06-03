@@ -32,6 +32,10 @@ import time
 import socket
 import keyboard 
 import threading
+import torch.nn.functional as F
+from torch.utils.data import Subset, random_split
+from sklearn.metrics import classification_report, confusion_matrix
+import json
 
 from MSCOCO_preprocessing import prepare_data, MSCOCOCustomDataset, load_from_COCOAPI, show_image, retrieve_captions
 
