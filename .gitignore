@@ -3,6 +3,7 @@ common/
 pycocotools/
 pycocotools.egg-info/
 coco/ 
+cocoapi/pythonapi/coco/
 interpretable-image/
 prototypical-networks/
 results/
@@ -17,17 +18,14 @@ ProtoPNet/_pycache_/
 plots/
 best_models/
 
+# Individual files and scripts
 MSc_thesis_PBNtraining1.sh
-
 ML-DAS-Ada-Snellius.pdf 
-
-cocoapi/pythonapi/coco/
-
 coco.sh
-
 pycocoDemo.ipynb
-
 unimodalPBN.py
+scratch.ipynb
+scratch.py
 
 # Model files
 *.pth

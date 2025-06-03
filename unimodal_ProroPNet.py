@@ -179,8 +179,7 @@ def test_protopnet(model_path,
 
     # Load state dict and handle DataParallel prefix
     state_dict = torch.load(model_path, map_location=device)
-    # Handle DataParallel state dict
-    from collections import OrderedDict
+
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
         if k.startswith('module.'):

@@ -87,9 +87,9 @@ def retrieve_captions(img_id, data_type):
     return " ".join(captions)
     
 
-def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True):
+def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True, verbose=False):
     """
-    Loads batch_size number of images and their corresponding captions
+    Loads certain number of images and their corresponding captions
     from the Microsoft COCO API.
 
     After loading, the data is stored in a list of dictionaries,
@@ -100,6 +100,8 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True):
     to PyTorch Dataset class. 
 
     param cat_name: name of the category to load
+    param data_type: type of data to load, either 'train', 'val'
+       ('test' is not supported due to the unpublished API of MS COCO)   
     param num_instances: number of images
     param shuffle: whether to shuffle the data
 
@@ -121,6 +123,10 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True):
         random.shuffle(img_ids)
 
     img_ids = img_ids[:num_instances]
+
+    if verbose:
+        print(f"Number of images: {len(img_ids)}")
+        print(f"Image ids: {img_ids}")
         
     # Store the image ids, image_url and captions in data_dict
     for img_id in img_ids:
@@ -854,25 +860,30 @@ def check_category_distribution(experiment_name, train_data, val_data, test_data
     
     return assessment_result
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
     #########################################################################################
     # Example usage of loading data from a single category and showing an example image
     #########################################################################################
 
-    # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100))
-    # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100))
-    # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100), load_captions=True)
-    # data_giraffe = MSCOCOCustomDataset(load_from_COCOAPI('giraffe', 100))
-    # data_horse = MSCOCOCustomDataset(load_from_COCOAPI('horse', 100))
-    # data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100), load_captions=True)
+    ### Load data that stores as a list of annotations
+    # data_dog = load_from_COCOAPI('dog', 100, 'train')
+    # for dog in data_dog:
+    #     print(dog['img_id'])
+    #     print(dog['captions'])
+    #     ... 
 
-    # print(data_dog)
-    # print(f"Number of images: {len(data_dog)}")
-    # print(retrieve_captions(419974))
-    # show_image(419974)
+    # show_image(<an image ID that is known to exist>, 'train')
 
-    # image, label, captions = data_dog[419974]
+    ### Load data that stores as a torch.utils.data.Dataset
+    # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100, 'train'))
+    # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100, 'train'))
+    # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100, 'train'), load_captions=True)
+    # data_giraffe = MSCOCOCustomDataset(load_from_COCOAPI('giraffe', 100, 'train'))
+    # data_horse = MSCOCOCustomDataset(load_from_COCOAPI('horse', 100, 'test'))
+    # data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100, 'test'), load_captions=True)
+
+    # image, label, captions = data_dog[419974] # Existing ID for dog
 
     # print("Label:", label)
     # print("Captions:", captions)
@@ -894,10 +905,11 @@ if __name__ == '__main__':
     # print(len(train_data), len(test_data))
     # Test the preselected categories
     
-    experiment_name = 'testrun'
+    # experiment_name = 'testrun'
 
-    train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
-    test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
+    # train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
+    # test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
 
-    train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=True, save_result=True)
-    check_category_distribution(experiment_name, train_data, val_data, test_data, save_result=True)
+    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=True, save_result=True)
+    # check_category_distribution(experiment_name, train_data, val_data, test_data, save_result=True)
+
