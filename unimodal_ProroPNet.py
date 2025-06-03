@@ -26,6 +26,9 @@ from torchvision import transforms
 
 import pandas as pd
 
+from collections import OrderedDict
+ 
+
 
 
 def train_protopnet(
@@ -65,6 +68,9 @@ def train_protopnet(
                             img_size=224)
     
     model = model.to(device)
+    # Wrap model in DataParallel
+    model = torch.nn.DataParallel(model)
+    
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -106,7 +112,6 @@ def train_protopnet(
         mode,running_time, val_loss, cluster_cost, separation_cost, avg_cluster_cost, val_accuracy, l1, p_avg_pair_dist = \
             validate(model,
              val_loader,
-             optimizer=None,
              class_specific=class_specific,
              get_full_results=True)
         
@@ -172,9 +177,22 @@ def test_protopnet(model_path,
                             add_on_layers_type='bottleneck',
                             img_size=224)
 
+    # Load state dict and handle DataParallel prefix
+    state_dict = torch.load(model_path, map_location=device)
+    # Handle DataParallel state dict
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k.startswith('module.'):
+            name = k[7:] # remove 'module.' prefix
+        else:
+            name = k
+        new_state_dict[name] = v
         
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
+    model.load_state_dict(new_state_dict)
+    model = model.to(device)
+    # Wrap model in DataParallel
+    model = torch.nn.DataParallel(model)
 
     test_loader = DataLoader(test_data, shuffle=False)
 
@@ -339,17 +357,17 @@ if __name__ == "__main__":
     categories = df_dataset_info["Category Name"].unique()
     num_classes = len(categories)
 
-    # Define dataset parameters
-    train_data, val_data = prepare_data_manually(*categories, 
-                                                 num_instances=15, 
-                                                 for_test=False, 
-                                                 split=True, 
-                                                 split_size=0.15, 
-                                                 experiment_name=experiment_name,
-                                                 transform=base_architecture,
-                                                 target_transform='integer',
-                                                 load_captions=False,
-                                                 save_result=save_result)
+    # # Define dataset parameters
+    # train_data, val_data = prepare_data_manually(*categories, 
+    #                                              num_instances=15, 
+    #                                              for_test=False, 
+    #                                              split=True, 
+    #                                              split_size=0.15, 
+    #                                              experiment_name=experiment_name,
+    #                                              transform=base_architecture,
+    #                                              target_transform='integer',
+    #                                              load_captions=False,
+    #                                              save_result=save_result)
     
     test_data = prepare_data_manually(*categories, 
                                       num_instances=10, 
@@ -361,24 +379,26 @@ if __name__ == "__main__":
                                       load_captions=False,
                                       save_result=save_result)
     
-    train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, save_result=save_result)
+    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, save_result=save_result)
     
 
-    best_model_path = train_protopnet(train_data, 
-                                      val_data, 
-                                      experiment_name, 
-                                      device, 
-                                      num_epochs, 
-                                      learning_rate, 
-                                      batch_size, 
-                                      lr_increment_rate, 
-                                      save_result, 
-                                      early_stopping_patience, 
-                                      lr_increase_patience, 
-                                      base_architecture, 
-                                      prototype_shape, 
-                                      class_specific, 
-                                      get_full_results=True)
+    # best_model_path = train_protopnet(train_data, 
+    #                                   val_data, 
+    #                                   experiment_name, 
+    #                                   device, 
+    #                                   num_epochs, 
+    #                                   learning_rate, 
+    #                                   batch_size, 
+    #                                   lr_increment_rate, 
+    #                                   save_result, 
+    #                                   early_stopping_patience, 
+    #                                   lr_increase_patience, 
+    #                                   base_architecture, 
+    #                                   prototype_shape, 
+    #                                   class_specific, 
+    #                                   get_full_results=True)
+
+    best_model_path = "best_models/ProtoPNet_testrun_best.pth"
     
     test_results = test_protopnet(best_model_path, 
                                 experiment_name, 

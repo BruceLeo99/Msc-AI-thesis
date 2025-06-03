@@ -189,7 +189,7 @@ class MSCOCOCustomDataset(Dataset):
         self.img_labels = dict(zip(self.img_ids, [item['category'] for item in data_list]))
         self.img_urls = dict(zip(self.img_ids, [item['url'] for item in data_list]))
         self.load_captions = load_captions
-            self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in data_list]))
+        self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in data_list]))
         self.img_supercategories = dict(zip(self.img_ids, [item['supercategory'] for item in data_list]))
     
         self.transform = transform
@@ -294,29 +294,29 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
     test_list = []
     
     if not for_test:
-    for category in categories:
-        # Load data for this category
-        category_data = load_from_COCOAPI(category, num_instances, data_type='train')
-        
+        for category in categories:
+            # Load data for this category
+            category_data = load_from_COCOAPI(category, num_instances, data_type='train')
+            
             if split:
-        # Split this category's data
+            # Split this category's data
                 category_train, category_val = train_test_split(
-            category_data, 
-                    test_size=split_size, 
-            random_state=42
-        )
+                category_data, 
+                test_size=split_size, 
+                random_state=42
+            )
         
             
-        train_list.extend(category_train)
+                train_list.extend(category_train)
                 val_list.extend(category_val)
 
             else:
                 train_list.extend(category_data)
     
-    # Create datasets
-    train_data = MSCOCOCustomDataset(train_list, transform=transform, 
-                                        target_transform=target_transform, 
-                                        load_captions=load_captions)
+            # Create datasets
+            train_data = MSCOCOCustomDataset(train_list, transform=transform, 
+                                                target_transform=target_transform, 
+                                                load_captions=load_captions)
         
         if split:
             val_data = MSCOCOCustomDataset(val_list, transform=transform, 
@@ -337,7 +337,7 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
     test_data = MSCOCOCustomDataset(test_list, transform=transform, 
                                    target_transform=target_transform, 
                                    load_captions=load_captions)
-        return test_data
+    return test_data
     
 
 def prepare_data_from_preselected_categories(selection_csv, data_type, split_val=False, val_size=0.2, experiment_name=None,
@@ -372,9 +372,9 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
             category_data = load_from_COCOAPI(category, num_instances, data_type, shuffle=True)
 
             if split_val:
-            train, val = train_test_split(category_data, test_size=val_size, random_state=42)
-            train_list.extend(train)
-            val_list.extend(val)
+                train, val = train_test_split(category_data, test_size=val_size, random_state=42)
+                train_list.extend(train)
+                val_list.extend(val)
             else:
                 train_list.extend(category_data)
         
@@ -395,14 +395,13 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
                                     load_captions=load_captions)
     
         if split_val:
-        val_data = MSCOCOCustomDataset(val_list, transform=transform, 
+            val_data = MSCOCOCustomDataset(val_list, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
             return train_data, val_data
         
 
         else:
-    
             return train_data
     
     # If we need to load the test set, we return the test dataset

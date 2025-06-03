@@ -27,6 +27,8 @@ coco.sh
 
 pycocoDemo.ipynb
 
+unimodalPBN.py
+
 # Model files
 *.pth
 model.pth
