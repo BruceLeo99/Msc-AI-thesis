@@ -19,13 +19,15 @@ plots/
 best_models/
 
 # Individual files and scripts
-MSc_thesis_PBNtraining1.sh
 ML-DAS-Ada-Snellius.pdf 
-coco.sh
 pycocoDemo.ipynb
 unimodalPBN.py
 scratch.ipynb
 scratch.py
+*.sh 
+*.ps1
+*.log 
+dataset_stats_*.csv
 
 # Model files
 *.pth

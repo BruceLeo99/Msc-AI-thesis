@@ -356,13 +356,18 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
     Due to the limitation of the MS COCO API, I split val_size amount of data from the training set for validation,
     and use the original validation set for testing.
 
-    param selection_csv: path to the csv file containing the preselected categories
-    param data_type: type of data to load, either 'train', 'val', or 'test'
-    param val_size: size of the validation set (as a fraction of the training set, 0.2 by default)
-    param transform: transform to apply to the images
-    param target_transform: transform to apply to the labels
-    param load_captions: whether to load the captions
-    param save_result: whether to save the result
+    param str selection_csv: path to the csv file containing the preselected categories
+    param str data_type: type of data to load, either 'train' or 'test'
+    param bool split_val: whether to split the training set into training and validation sets
+    param float val_size: size of the validation set (as a fraction of the training set, 0.2 by default)
+    param str transform: transform to apply to the images. Choose from 'vgg16', 'resnet18'
+    param str target_transform: transform to apply to the labels. Choose from 'one_hot', 'integer'
+    param bool load_captions: whether to load the captions
+    param bool save_result: whether to save the result
+
+    returns:
+    1. train_data, val_data in MSCOCOCustomDataset format if split_val is True, otherwise only train_data
+    2. test_data in MSCOCOCustomDataset format if data_type is 'test'
     """
     train_list = []
     val_list = []
