@@ -102,9 +102,9 @@ def choose_categories_manually(*category_names, save_to_csv=False, csv_name='cho
     return chosen_categories
 
 if __name__ == "__main__":
-    num_supercategories = 6
-    num_categories = 20
-    chosen_categories = choose_categories(num_supercategories, num_categories, save_to_csv=True, csv_name=f'chosen_categories_{num_supercategories}_{num_categories}_v3.csv')
+    num_supercategories = 10
+    num_categories = 30
+    chosen_categories = choose_categories(num_supercategories, num_categories, save_to_csv=True, csv_name=f'chosen_categories_{num_supercategories}_{num_categories}.csv')
 
     # df_no_person = df[df['Category Name'] != 'person']
     # print(df_no_person.head())

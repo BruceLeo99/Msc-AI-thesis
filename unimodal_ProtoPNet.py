@@ -29,8 +29,6 @@ import pandas as pd
 from collections import OrderedDict
  
 
-
-
 def train_protopnet(
         train_data,
         val_data,

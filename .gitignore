@@ -17,6 +17,7 @@ pycocotools.egg-info/
 ProtoPNet/_pycache_/
 plots/
 best_models/
+visualbert/
 
 # Individual files and scripts
 ML-DAS-Ada-Snellius.pdf 
@@ -28,6 +29,13 @@ scratch.py
 *.ps1
 *.log 
 dataset_stats_*.csv
+gpu*.py 
+production_gpu_calculator.py
+main_part*.py
+example_multiGPU_usage.py
+check_gpu_usage.py
+resnet18_model_multiGPU.py
+vgg16_model_multiGPU.py
 
 # Model files
 *.pth

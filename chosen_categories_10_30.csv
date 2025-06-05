@@ -1,0 +1,31 @@
+Supercategory Name,Category Name,Number of Training Images,Number of Validation Images
+vehicle,motorcycle,3502,159
+kitchen,fork,3555,155
+sports,baseball glove,2629,100
+sports,surfboard,3486,149
+outdoor,bench,5570,235
+animal,cat,4114,184
+furniture,toilet,3353,149
+animal,dog,4385,177
+vehicle,bus,3952,189
+food,cake,2925,124
+kitchen,knife,4326,181
+electronic,laptop,3524,183
+animal,cow,1968,87
+outdoor,fire hydrant,1711,86
+accessory,tie,3810,145
+furniture,dining table,11837,501
+kitchen,spoon,3529,153
+animal,bird,3237,125
+animal,elephant,2143,89
+kitchen,wine glass,2533,110
+sports,tennis racket,3394,167
+accessory,suitcase,2402,105
+furniture,couch,4423,195
+animal,zebra,1916,85
+vehicle,truck,6127,250
+electronic,cell phone,4803,214
+sports,skis,3082,120
+food,pizza,3166,153
+kitchen,bowl,7111,314
+vehicle,train,3588,157

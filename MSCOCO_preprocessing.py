@@ -456,7 +456,7 @@ def data_summary(experiment_name, train_data, val_data, test_data, num_examples=
 
     return dataset_stats
 
-def check_data_leakage(train_data, val_data, test_data, verbose=True, save_result=False):
+def check_data_leakage(train_data, val_data, test_data, verbose=False, save_result=False):
     """
     Check for data leakage between train, validation, and test datasets.
     
@@ -676,7 +676,7 @@ def eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verb
 
 
 
-def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=True, save_result=False):
+def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False):
     """
     Check the distribution of categories across train, validation, and test sets.
     Also checks for overlaps between assigned classes (multi-label scenarios).
@@ -915,6 +915,42 @@ def check_category_distribution(experiment_name, train_data, val_data, test_data
     # train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
     # test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
 
-    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=True, save_result=True)
+    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=False, save_result=True)
     # check_category_distribution(experiment_name, train_data, val_data, test_data, save_result=True)
 
+    #########################################################################################
+    # DATA LOADING SPEED TEST
+    #########################################################################################
+    # import time
+    # # 10 categories
+    # start_time_10cat = time.time()
+
+    # train_data_10classes, val_data_10classes = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
+    # test_data_10classes = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
+
+    # train_data_10classes, val_data_10classes, test_data_10classes = eliminate_leaked_data('test', train_data_10classes, val_data_10classes, test_data_10classes, verbose=False, save_result=False)
+
+    # end_time_10cat = time.time()
+    # print(f"Time taken to load 10 categories: {end_time_10cat - start_time_10cat} seconds")
+
+    # # 20 categories
+    # start_time_20cat = time.time()
+
+    # train_data_20classes, val_data_20classes = prepare_data_from_preselected_categories('chosen_categories_6_20_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
+    # test_data_20classes = prepare_data_from_preselected_categories('chosen_categories_6_20_v3.csv', 'test', load_captions=True)
+
+    # train_data_20classes, val_data_20classes, test_data_20classes = eliminate_leaked_data('test', train_data_20classes, val_data_20classes, test_data_20classes, verbose=True, save_result=False)
+
+    # end_time_20cat = time.time()
+    # print(f"Time taken to load 20 categories: {end_time_20cat - start_time_20cat} seconds")
+
+    # # 30 categories
+    # start_time_30cat = time.time()
+
+    # train_data_30classes, val_data_30classes = prepare_data_from_preselected_categories('chosen_categories_10_30.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
+    # test_data_30classes = prepare_data_from_preselected_categories('chosen_categories_10_30.csv', 'test', load_captions=True)
+
+    # train_data_30classes, val_data_30classes, test_data_30classes = eliminate_leaked_data('test', train_data_30classes, val_data_30classes, test_data_30classes, verbose=False, save_result=False)
+
+    # end_time_30cat = time.time()
+    # print(f"Time taken to load 30 categories: {end_time_30cat - start_time_30cat} seconds")

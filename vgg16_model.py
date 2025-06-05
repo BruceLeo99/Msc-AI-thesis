@@ -676,7 +676,6 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
             json.dump(test_result, f)
             
 
-
         df_classification_report = pd.DataFrame(classi_report).T
         # The classification report already has proper row names, just ensure they're clean
         df_classification_report.index.name = 'Class'
@@ -695,7 +694,7 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
     return test_result
 
 if __name__ == "__main__":
-    ###### TODO: Learning rate increment function debug: add not update count also if the model performance became worse
+
     # Create results directory if it doesn't exist
     if not os.path.exists('results'):
         os.makedirs('results')
