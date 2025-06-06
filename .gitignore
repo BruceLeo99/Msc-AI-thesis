@@ -17,6 +17,7 @@ pycocotools.egg-info/
 ProtoPNet/_pycache_/
 plots/
 best_models/
+outdated_models/
 visualbert/
 
 # Individual files and scripts

@@ -1,4 +1,4 @@
-from MSCOCO_preprocessing import *
+from MSCOCO_preprocessing_local import *
 from unimodal_ProtoPNet import *
 from vgg16_model import *
 from resnet18_model import *
@@ -81,7 +81,7 @@ test_data_20classes = prepare_data_from_preselected_categories(
     save_result=False
 )
 
-train_data_20classes,val_data_20classes,test_data_20classes = eliminate_leaked_data(
+train_data_20classes, val_data_20classes, test_data_20classes = eliminate_leaked_data(
     experiment_name=experiment_name2,
     train_data=train_data_20classes,
     val_data=val_data_20classes,

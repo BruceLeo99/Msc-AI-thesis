@@ -16,7 +16,7 @@ from torch.utils.data import Subset, random_split
 from sklearn.metrics import classification_report, confusion_matrix
 import json
 
-from MSCOCO_preprocessing import *
+from MSCOCO_preprocessing_local import *
 
 from ProtoPNet.model import construct_PPNet
 from ProtoPNet.train_and_test import train, validate

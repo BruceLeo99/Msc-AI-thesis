@@ -1,6 +1,6 @@
-### MSCOCO Preprocessing
+# MSCOCO_preprocessing_local.py
+# This script loads the MSCOCO dataset and preprocesses it from local storage, enabling local training and testing.
 
-# This script preprocesses and saves the data from Miscrosoft COCO dataset
 # This script used a pre-loaded file 'dataset_info.csv' to map the category name to the supercategory name,
 # and to fetch necessary information of the dataset to save computational time.
 
@@ -20,6 +20,8 @@ from collections import Counter, defaultdict
 import requests
 from PIL import Image
 from io import BytesIO
+
+import time
 
 
 pylab.rcParams['figure.figsize'] = (8.0, 10.0)
@@ -56,6 +58,10 @@ trainCaptionFilepath=f'{dataDir}/annotations/captions_{trainDir}.json'
 valInstanceFilepath=f'{dataDir}/annotations/instances_{valDir}.json'
 valCaptionFilepath=f'{dataDir}/annotations/captions_{valDir}.json'
 
+trainImagesFilepath=f'{dataDir}/{trainDir}'
+valImagesFilepath=f'{dataDir}/{valDir}'
+
+
 # Load the instance and caption files
 coco_caption_train = COCO(trainCaptionFilepath)
 coco_instance_train = COCO(trainInstanceFilepath)
@@ -64,23 +70,26 @@ coco_caption_val = COCO(valCaptionFilepath)
 coco_instance_val = COCO(valInstanceFilepath)
 
 # Due to the limitation of the MS COCO API, I use the original validation set for testing.
-coco_data_dict = {
+coco_data_path_dict = {
     'train': {
-        'caption': coco_caption_train,
-        'instance': coco_instance_train
+        'caption_path': coco_caption_train,
+        'instance_path': coco_instance_train, 
+        'images_path': trainImagesFilepath
     },
     'test': {
-        'caption': coco_caption_val,
-        'instance': coco_instance_val
+        'caption_path': coco_caption_val,
+        'instance_path': coco_instance_val,
+        'images_path': valImagesFilepath
     }
 }
+
 
 def retrieve_captions(img_id, data_type):
     """
     Retrieves the captions for a given image id
     """
 
-    annotations = coco_data_dict[data_type]['caption'].loadAnns(coco_data_dict[data_type]['caption'].getAnnIds(imgIds=img_id))
+    annotations = coco_data_path_dict[data_type]['caption_path'].loadAnns(coco_data_path_dict[data_type]['caption_path'].getAnnIds(imgIds=img_id))
 
     captions = [ann['caption'] for ann in annotations]
 
@@ -89,15 +98,13 @@ def retrieve_captions(img_id, data_type):
 
 def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True, verbose=False):
     """
-    Loads certain number of images and their corresponding captions
+    Loads certain number of images and their information (image id, image url, image filename, captions, category, supercategory)
     from the Microsoft COCO API.
 
     After loading, the data is stored in a list of dictionaries,
-    where each dictionary contains the image id, image_url, captions,
-    and category name.
+    where each dictionary contains the image id, image_url, captions, filenames, category name, and supercategory name.
 
-    The list of dictionaries will be furthre converted
-    to PyTorch Dataset class. 
+    The list of dictionaries will be furthre converted to PyTorch Dataset class. 
 
     param cat_name: name of the category to load
     param data_type: type of data to load, either 'train', 'val'
@@ -105,19 +112,29 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True, verbose=
     param num_instances: number of images
     param shuffle: whether to shuffle the data
 
-    returns dict(data_dict)
+    returns list(data_dict) data
+
+    Example data info in the return list
+    {
+        'img_id': 12345,
+        'url': 'http://images.cocodataset.org/train2017/000000012345.jpg',
+        'img_filename': 'coco/train2017/000000012345.jpg',
+        'captions': 'This is a photo of a cat',
+        'category': 'cat',
+        'supercategory': 'animal'
+    }
     """
     data = []
 
     # Sort and get the image ids of the category
-    categories = coco_data_dict[data_type]['instance'].dataset['categories']
+    categories = coco_data_path_dict[data_type]['instance_path'].dataset['categories']
     cat_ids = [category['id'] for category in categories]
     cat_names = [category['name'] for category in categories]
 
     cat_dict = dict(zip(cat_names, cat_ids))    
 
     cat_id = cat_dict[cat_name]
-    img_ids = coco_data_dict[data_type]['instance'].getImgIds(catIds=cat_id)
+    img_ids = coco_data_path_dict[data_type]['instance_path'].getImgIds(catIds=cat_id)
 
     if shuffle:
         random.shuffle(img_ids)
@@ -130,70 +147,47 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True, verbose=
         
     # Store the image ids, image_url and captions in data_dict
     for img_id in img_ids:
-
+        img_filename = coco_data_path_dict[data_type]['instance_path'].filenames[img_id]
+        
         data_info = {
-            'img_id': img_id,
-            'url': coco_data_dict[data_type]['instance'].loadImgs(img_id)[0]['coco_url'],
-            'captions': retrieve_captions(img_id, data_type),
-            'category': cat_name,
-            'supercategory': category_supercategory_map[cat_name]
+            'img_id': img_id, # E.g.: 12345
+            'url': coco_data_path_dict[data_type]['instance_path'].loadImgs(img_id)[0]['coco_url'], # E.g.: 'http://images.cocodataset.org/train2017/000000012345.jpg'
+            'img_filename': f"{coco_data_path_dict[data_type]['images_path']}/{img_filename}", # E.g.: 'coco/train2017/000000012345.jpg'
+            'captions': retrieve_captions(img_id, data_type), # captions in string
+            'category': cat_name, # cateogry name in string
+            'supercategory': category_supercategory_map[cat_name] # supercategory name in string
         }
 
         data.append(data_info)
 
     return data
 	
-def show_image(img_id, data_type):
-    """
-    Shows the image for a given image id
-    """
-    img = coco_data_dict[data_type]['instance'].loadImgs(img_id)[0]
-    io.imshow(img['coco_url'])
-    plt.show()
-
-def read_image(image_url):
-    """
-    Reads an image from a given URL with retry logic
-    """
-    import time
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(image_url, timeout=10)
-            response.raise_for_status()  # Raise an exception for bad status codes
-            img = Image.open(BytesIO(response.content)).convert('RGB')
-            return img
-        except Exception as e:
-            if attempt < max_retries - 1:
-                print(f"Failed to load image from {image_url}, attempt {attempt + 1}/{max_retries}. Retrying...")
-                time.sleep(1)  # Wait before retry
-            else:
-                print(f"Failed to load image from {image_url} after {max_retries} attempts: {e}")
-                # Return a black image as fallback
-                return Image.new('RGB', (224, 224), color='black')
-
- 
 class MSCOCOCustomDataset(Dataset):
     """
-    Creates a customized MS COCO dataset
-    in PyTorch Dataset format that allows PyTorch
-    to load and process the data.
+    Creates a customized MS COCO dataset in PyTorch Dataset format that allows PyTorch to load and process the data.
+
+    param data_list: list of dictionaries containing image information
+    param transform: optional transform to apply to the images
+    param target_transform: optional transform to apply to the labels
+    param load_captions: whether to load the captions
     """
 
-    def __init__(self, data_list, 
+    def __init__(self, data_list, load_from_local=True,
                  transform=None, target_transform=None, load_captions=False):
         
         """
         param data_list: list of dictionaries containing image information
         param transform: optional transform to apply to the images
         param target_transform: optional transform to apply to the labels
+        param load_from_local: whether to load the data from local storage
         param load_captions: whether to load the captions
         """
         self.data = data_list
+        self.load_from_local = load_from_local
         self.img_ids = [item['img_id'] for item in data_list]
         self.img_labels = dict(zip(self.img_ids, [item['category'] for item in data_list]))
         self.img_urls = dict(zip(self.img_ids, [item['url'] for item in data_list]))
+        self.img_filenames = dict(zip(self.img_ids, [item['img_filename'] for item in data_list]))
         self.load_captions = load_captions
         self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in data_list]))
         self.img_supercategories = dict(zip(self.img_ids, [item['supercategory'] for item in data_list]))
@@ -221,40 +215,13 @@ class MSCOCOCustomDataset(Dataset):
             ])
 
         if self.target_transform == "integer":
-            # Store the label mapping for use in __getitem__
-            self.label_name_idx = self.label_name_idx
-            
-            def label_transform(label):
-                return self.label_name_idx[label]
-            
-            self.target_transform = label_transform
+            self.target_transform = self._convert_label_to_integer
 
+    def _convert_label_to_integer(self, label):
+        return self.label_name_idx[label]
 
     def __len__(self):
         return len(self.data)
-    
-    def __getitem__(self, idx):
-        """ 
-        Retrieves an image and its corresponding label, also the caption if it is enabled.
-        """
-        image_id = self.img_ids[idx]
-        image = read_image(self.img_urls[image_id])
-        image_label = self.img_labels[image_id]
-
-        if self.transform is not None:
-            image = self.transform(image)
-
-        if self.target_transform is not None:
-            image_label = self.target_transform(image_label)
-            
-        if self.load_captions:
-            image_caption = self.img_captions[image_id]
-            # print("Returning 3 items")
-            return image, image_label, image_caption
-        
-        else:
-            # print("Returning 2 items")
-            return image, image_label
         
     def get_dataset_labels(self):
         return self.label_name_idx
@@ -276,9 +243,82 @@ class MSCOCOCustomDataset(Dataset):
     
     def get_num_classes(self):
         return len(self.label_names)
+    
+    def get_image_filename(self, idx):
+        return self.img_filenames[self.img_ids[idx]]
+    
+
+    def read_image_from_local(self, image_id):
+        """
+        Reads an image from a given image_id
+        """
+        # Use direct dictionary access with image_id
+        if image_id not in self.img_filenames:
+            raise KeyError(f"Image ID {image_id} not found in dataset")
+        
+        image_filename = self.img_filenames[image_id]
+        try:
+            return Image.open(image_filename).convert('RGB')
+        
+        except (FileNotFoundError, IOError) as e:
+            raise FileNotFoundError(f"Could not load image {image_filename}: {e}")
         
 
-def prepare_data_manually(*categories, num_instances=100, for_test=False, split=True, split_size=0.2, experiment_name=None,
+    def read_image_from_url(self,image_url):
+        """
+        Reads an image from a given URL with retry logic
+        """
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(image_url, timeout=10)
+                response.raise_for_status()  # Raise an exception for bad status codes
+                img = Image.open(BytesIO(response.content)).convert('RGB')
+                return img
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"Failed to load image from {image_url}, attempt {attempt + 1}/{max_retries}. Retrying...")
+                    time.sleep(1)  # Wait before retry
+                else:
+                    print(f"Failed to load image from {image_url} after {max_retries} attempts: {e}")
+                
+    
+    def __getitem__(self, idx):
+        """ 
+        Retrieves an image and its corresponding label, also the caption if it is enabled.
+        """
+        if idx >= len(self.data) or idx < 0:
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.data)}")
+            
+        image_id = self.img_ids[idx]
+        if self.load_from_local:
+            image = self.read_image_from_local(image_id)
+        else:
+            image = self.read_image_from_url(self.img_urls[image_id])
+
+        image_label = self.img_labels[image_id]
+
+        if self.transform is not None:
+            image = self.transform(image)
+
+        if self.target_transform is not None:
+            if self.target_transform == "integer":
+                image_label = self.label_name_idx[image_label]
+            else:
+                image_label = self.target_transform(image_label)
+            
+        if self.load_captions:
+            image_caption = self.img_captions[image_id]
+            # print("Returning 3 items")
+            return image, image_label, image_caption
+        
+        else:
+            # print("Returning 2 items")
+            return image, image_label
+        
+
+def prepare_data_manually(*categories, num_instances=100, load_from_local=True, for_test=False, split_val=False, val_size=None, experiment_name=None,
                  transform=None, target_transform=None, load_captions=False, save_result=False):
     """
     Prepares the data for the given categories with a manually defined number of instances.
@@ -287,9 +327,10 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
 
     param categories: list of categories to load
     param num_instances: number of instances to load per category
+    param load_from_local: whether to load the data from local storage
     param for_test: whether to load the data for testing
-    param split: whether to split the data into training and validation sets
-    param split_size: size of the test set (as a fraction)
+    param split_val: whether to split the training set into training and validation sets
+    param val_size: size of the validation set (as a fraction of the training set, 0.2 by default)
     param transform: transform to apply to the images
     param load_captions: whether to load the captions
 
@@ -298,17 +339,20 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
     train_list = []
     val_list = []
     test_list = []
-    
+
+    if split_val:
+        assert val_size is not None, "val_size must be provided if split_val is True"
+
     if not for_test:
         for category in categories:
             # Load data for this category
             category_data = load_from_COCOAPI(category, num_instances, data_type='train')
             
-            if split:
+            if split_val:
             # Split this category's data
                 category_train, category_val = train_test_split(
                 category_data, 
-                test_size=split_size, 
+                test_size=val_size, 
                 random_state=42
             )
         
@@ -320,12 +364,12 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
                 train_list.extend(category_data)
     
             # Create datasets
-            train_data = MSCOCOCustomDataset(train_list, transform=transform, 
+            train_data = MSCOCOCustomDataset(train_list, load_from_local=load_from_local, transform=transform, 
                                                 target_transform=target_transform, 
                                                 load_captions=load_captions)
         
-        if split:
-            val_data = MSCOCOCustomDataset(val_list, transform=transform, 
+        if split_val:
+            val_data = MSCOCOCustomDataset(val_list, load_from_local=load_from_local, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
             return train_data, val_data
@@ -340,13 +384,13 @@ def prepare_data_manually(*categories, num_instances=100, for_test=False, split=
             category_data = load_from_COCOAPI(category, num_instances, data_type='test')
             test_list.extend(category_data)
 
-    test_data = MSCOCOCustomDataset(test_list, transform=transform, 
+    test_data = MSCOCOCustomDataset(test_list, load_from_local=load_from_local, transform=transform, 
                                    target_transform=target_transform, 
                                    load_captions=load_captions)
     return test_data
     
 
-def prepare_data_from_preselected_categories(selection_csv, data_type, split_val=False, val_size=0.2, experiment_name=None,
+def prepare_data_from_preselected_categories(selection_csv, data_type, load_from_local=True, split_val=False, val_size=0.2, experiment_name=None,
                  transform=None, target_transform=None, load_captions=False, save_result=False):
     
     """
@@ -358,6 +402,7 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
 
     param str selection_csv: path to the csv file containing the preselected categories
     param str data_type: type of data to load, either 'train' or 'test'
+    param bool load_from_local: whether to load the data from local storage
     param bool split_val: whether to split the training set into training and validation sets
     param float val_size: size of the validation set (as a fraction of the training set, 0.2 by default)
     param str transform: transform to apply to the images. Choose from 'vgg16', 'resnet18'
@@ -366,8 +411,9 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
     param bool save_result: whether to save the result
 
     returns:
-    1. train_data, val_data in MSCOCOCustomDataset format if split_val is True, otherwise only train_data
-    2. test_data in MSCOCOCustomDataset format if data_type is 'test'
+    1. train_data: MSCOCOCustomDataset format if data_type is 'train' and split_val is False, containing data only for training
+    2. train_data, val_data: MSCOCOCustomDataset format if split_val is True, otherwise only train_data
+    3. test_data: MSCOCOCustomDataset format if data_type is 'test'
     """
     train_list = []
     val_list = []
@@ -400,13 +446,13 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
     # If we need to split the training set into training and validation set, we return both datasets
     # If not, then only the training
     if data_type == 'train':
-        train_data = MSCOCOCustomDataset(train_list, transform=transform, 
+        train_data = MSCOCOCustomDataset(train_list, load_from_local=load_from_local, transform=transform, 
                                     target_transform=target_transform, 
           
                                     load_captions=load_captions)
     
         if split_val:
-            val_data = MSCOCOCustomDataset(val_list, transform=transform, 
+            val_data = MSCOCOCustomDataset(val_list, load_from_local=load_from_local, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
             return train_data, val_data
@@ -417,7 +463,7 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, split_val
     
     # If we need to load the test set, we return the test dataset
     elif data_type == 'test':
-        test_data = MSCOCOCustomDataset(test_list, transform=transform, 
+        test_data = MSCOCOCustomDataset(test_list, load_from_local=load_from_local, transform=transform, 
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
         return test_data
@@ -456,7 +502,7 @@ def data_summary(experiment_name, train_data, val_data, test_data, num_examples=
 
     return dataset_stats
 
-def check_data_leakage(train_data, val_data, test_data, verbose=False, save_result=False):
+def check_data_leakage(train_data, val_data, test_data, verbose=True, save_result=False):
     """
     Check for data leakage between train, validation, and test datasets.
     
@@ -513,17 +559,17 @@ def check_data_leakage(train_data, val_data, test_data, verbose=False, save_resu
         print("="*60)
         
         print(f"\nDataset Sizes:")
-        print(f"  Training:   {len(train_ids):,} images")
-        print(f"  Validation: {len(val_ids):,} images")
-        print(f"  Test:       {len(test_ids):,} images")
-        print(f"  Expected Total: {expected_total:,} images")
-        print(f"  Actual Unique:  {total_unique_images:,} images")
+        print(f"Training:   {len(train_ids):,} images")
+        print(f"Validation: {len(val_ids):,} images")
+        print(f"Test:       {len(test_ids):,} images")
+        print(f"Expected Total: {expected_total:,} images")
+        print(f"Actual Unique:  {total_unique_images:,} images")
         
         print(f"\nOverlap Analysis:")
-        print(f"  Train ∩ Validation: {len(train_val_overlap):,} images")
-        print(f"  Train ∩ Test:       {len(train_test_overlap):,} images")
-        print(f"  Validation ∩ Test:  {len(val_test_overlap):,} images")
-        print(f"  All Three Sets:     {len(all_overlap):,} images")
+        print(f"Train ∩ Validation: {len(train_val_overlap):,} images")
+        print(f"Train ∩ Test:       {len(train_test_overlap):,} images")
+        print(f"Validation ∩ Test:  {len(val_test_overlap):,} images")
+        print(f"All Three Sets:     {len(all_overlap):,} images")
         
         # Calculate leakage percentages
         if len(val_ids) > 0:
@@ -540,28 +586,28 @@ def check_data_leakage(train_data, val_data, test_data, verbose=False, save_resu
         # Overall assessment
         print(f"\nOverall Assessment:")
         if leakage_results['has_leakage']:
-            print("  ⚠️  DATA LEAKAGE DETECTED!")
-            print("     This may lead to overly optimistic performance estimates.")
-            print("     Consider using different data splits or removing duplicates.")
+            print("DATA LEAKAGE DETECTED!")
+            print("This may lead to overly optimistic performance estimates.")
+            print("Consider using different data splits or removing duplicates.")
         else:
-            print("  ✅ NO DATA LEAKAGE DETECTED")
-            print("     All splits are properly separated.")
+            print("NO DATA LEAKAGE DETECTED")
+            print("All splits are properly separated.")
         
         # Show some example overlapping IDs if they exist
         if len(train_val_overlap) > 0:
             print(f"\nExample Train-Val Overlap IDs (showing first 5):")
             for img_id in list(train_val_overlap)[:5]:
-                print(f"    Image ID: {img_id}")
+                print(f"Image ID: {img_id}")
         
         if len(train_test_overlap) > 0:
             print(f"\nExample Train-Test Overlap IDs (showing first 5):")
             for img_id in list(train_test_overlap)[:5]:
-                print(f"    Image ID: {img_id}")
+                print(f"Image ID: {img_id}")
                 
         if len(val_test_overlap) > 0:
             print(f"\nExample Val-Test Overlap IDs (showing first 5):")
             for img_id in list(val_test_overlap)[:5]:
-                print(f"    Image ID: {img_id}")
+                print(f"Image ID: {img_id}")
         
         print("="*60)
     
@@ -676,7 +722,7 @@ def eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verb
 
 
 
-def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False):
+def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=True, save_result=False):
     """
     Check the distribution of categories across train, validation, and test sets.
     Also checks for overlaps between assigned classes (multi-label scenarios).
@@ -865,7 +911,7 @@ def check_category_distribution(experiment_name, train_data, val_data, test_data
     
     return assessment_result
 
-# if __name__ == '__main__':
+if __name__ == '__main__':
 
     #########################################################################################
     # Example usage of loading data from a single category and showing an example image
@@ -881,18 +927,21 @@ def check_category_distribution(experiment_name, train_data, val_data, test_data
     # show_image(<an image ID that is known to exist>, 'train')
 
     ### Load data that stores as a torch.utils.data.Dataset
-    # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100, 'train'))
+    data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100, 'train'), load_captions=True)
     # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100, 'train'))
     # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100, 'train'), load_captions=True)
     # data_giraffe = MSCOCOCustomDataset(load_from_COCOAPI('giraffe', 100, 'train'))
     # data_horse = MSCOCOCustomDataset(load_from_COCOAPI('horse', 100, 'test'))
     # data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100, 'test'), load_captions=True)
 
-    # image, label, captions = data_dog[419974] # Existing ID for dog
+    print(f"filenames of dog images: {data_dog.img_filenames}")
+    print(f"Ids of dog images: {data_dog.img_ids}")
 
-    # print("Label:", label)
-    # print("Captions:", captions)
-    # image.show() 
+    image, label, captions = data_dog[5] 
+
+    print("Label:", label)
+    print("Captions:", captions)
+    image.show() 
 
     # print(f"Number of images: {len(data_airplane)}")
     # print(data_airplane.img_ids)
@@ -903,54 +952,18 @@ def check_category_distribution(experiment_name, train_data, val_data, test_data
     # image.show() 
 
     #########################################################################################
-    # Example usage of loading data in one go
+    # Example usage of loading data in one go and test loading speed
     #########################################################################################
-    # train_data, test_data = prepare_data('dog', 'cat', 'zebra', 'giraffe', 'horse', num_instances=100, test_size=0.2)
-
-    # print(len(train_data), len(test_data))
-    # Test the preselected categories
     
-    # experiment_name = 'testrun'
+    # experiment_name = 'testrun_local'
 
-    # train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
-    # test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
+    # start_time = time.time()
+    # train_data, val_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.2, transform='vgg16', target_transform='integer', load_captions=True)
+    # test_data = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', transform='vgg16', target_transform='integer', load_captions=True)
 
-    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=False, save_result=True)
+    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=True, save_result=True)
     # check_category_distribution(experiment_name, train_data, val_data, test_data, save_result=True)
 
-    #########################################################################################
-    # DATA LOADING SPEED TEST
-    #########################################################################################
-    # import time
-    # # 10 categories
-    # start_time_10cat = time.time()
+    # end_time = time.time()
+    # print(f"Time taken to prepare data: {end_time - start_time} seconds")
 
-    # train_data_10classes, val_data_10classes = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
-    # test_data_10classes = prepare_data_from_preselected_categories('chosen_categories_3_10_v3.csv', 'test', load_captions=True)
-
-    # train_data_10classes, val_data_10classes, test_data_10classes = eliminate_leaked_data('test', train_data_10classes, val_data_10classes, test_data_10classes, verbose=False, save_result=False)
-
-    # end_time_10cat = time.time()
-    # print(f"Time taken to load 10 categories: {end_time_10cat - start_time_10cat} seconds")
-
-    # # 20 categories
-    # start_time_20cat = time.time()
-
-    # train_data_20classes, val_data_20classes = prepare_data_from_preselected_categories('chosen_categories_6_20_v3.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
-    # test_data_20classes = prepare_data_from_preselected_categories('chosen_categories_6_20_v3.csv', 'test', load_captions=True)
-
-    # train_data_20classes, val_data_20classes, test_data_20classes = eliminate_leaked_data('test', train_data_20classes, val_data_20classes, test_data_20classes, verbose=True, save_result=False)
-
-    # end_time_20cat = time.time()
-    # print(f"Time taken to load 20 categories: {end_time_20cat - start_time_20cat} seconds")
-
-    # # 30 categories
-    # start_time_30cat = time.time()
-
-    # train_data_30classes, val_data_30classes = prepare_data_from_preselected_categories('chosen_categories_10_30.csv', 'train', split_val=True, val_size=0.15, load_captions=True)
-    # test_data_30classes = prepare_data_from_preselected_categories('chosen_categories_10_30.csv', 'test', load_captions=True)
-
-    # train_data_30classes, val_data_30classes, test_data_30classes = eliminate_leaked_data('test', train_data_30classes, val_data_30classes, test_data_30classes, verbose=False, save_result=False)
-
-    # end_time_30cat = time.time()
-    # print(f"Time taken to load 30 categories: {end_time_30cat - start_time_30cat} seconds")

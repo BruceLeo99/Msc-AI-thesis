@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import StepLR, CyclicLR
 from sklearn.model_selection import train_test_split, KFold
 import time
 import os
-from MSCOCO_preprocessing import *
+from MSCOCO_preprocessing_local import *
 import pandas as pd
 from torch.utils.data import random_split, Subset
 from sklearn.metrics import classification_report, confusion_matrix
@@ -162,7 +162,26 @@ def train_vgg16(
         torch.cuda.empty_cache()
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_data,  shuffle=False)
+    val_loader = DataLoader(val_data, shuffle=False)
+
+    # Optimize data loading for better GPU utilization
+    # num_workers = min(8, os.cpu_count() or 4)
+    # train_loader = DataLoader(
+    #     train_data, 
+    #     batch_size=batch_size, 
+    #     shuffle=True,
+    #     num_workers=num_workers,
+    #     pin_memory=True,
+    #     prefetch_factor=2
+    # )
+    # val_loader = DataLoader(
+    #     val_data, 
+    #     batch_size=batch_size, 
+    #     shuffle=False,
+    #     num_workers=num_workers,
+    #     pin_memory=True,
+    #     prefetch_factor=2,
+    # )
     
     # Original single train/val split training
     print("Starting Training.\nModel: VGG16 baseline with No Prototypes")
@@ -177,7 +196,6 @@ def train_vgg16(
     non_update_count = 0
     lr_increase_count = 0
 
-    print("Start Training VGG16")
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1} of {num_epochs}")
 

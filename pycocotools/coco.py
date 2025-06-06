@@ -91,7 +91,7 @@ class COCO:
     def createIndex(self):
         # create index
         print('creating index...')
-        anns, cats, imgs = {}, {}, {}
+        anns, cats, imgs, filenames = {}, {}, {}, {}
         imgToAnns,catToImgs = defaultdict(list),defaultdict(list)
         if 'annotations' not in self.dataset:
             print("No annotations found in the dataset")
@@ -104,6 +104,7 @@ class COCO:
         if 'images' in self.dataset:
             for img in self.dataset['images']:
                 imgs[img['id']] = img
+                filenames[img['id']] = img['file_name']
 
         if 'categories' in self.dataset:
             for cat in self.dataset['categories']:
@@ -112,7 +113,9 @@ class COCO:
         if 'annotations' in self.dataset and 'categories' in self.dataset:
             for ann in self.dataset['annotations']:
                 catToImgs[ann['category_id']].append(ann['image_id'])
+        
 
+        
         print('index created!')
 
         # create class members
@@ -121,6 +124,7 @@ class COCO:
         self.catToImgs = catToImgs
         self.imgs = imgs
         self.cats = cats
+        self.filenames = filenames
 
     def info(self):
         """
