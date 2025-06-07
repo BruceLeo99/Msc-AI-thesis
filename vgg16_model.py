@@ -125,6 +125,7 @@ def train_vgg16(
         save_result = False,
         early_stopping_patience = 10,
         lr_increase_patience = 5,
+        num_workers = 0
 ):
     
     """
@@ -161,8 +162,12 @@ def train_vgg16(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_data, shuffle=False)
+    if num_workers == 0:
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_data, shuffle=False)
+    else:
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        val_loader = DataLoader(val_data, shuffle=False, num_workers=num_workers)
 
     # Optimize data loading for better GPU utilization
     # num_workers = min(8, os.cpu_count() or 4)

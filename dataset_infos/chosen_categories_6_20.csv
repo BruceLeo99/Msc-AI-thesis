@@ -1,0 +1,21 @@
+Supercategory Name,Category Name,Number of Training Images,Number of Validation Images
+sports,sports ball,4262,169
+sports,baseball glove,2629,100
+furniture,bed,3682,149
+food,cake,2925,124
+kitchen,bottle,8501,379
+outdoor,bench,5570,235
+sports,kite,2261,91
+sports,skateboard,3476,127
+food,pizza,3166,153
+animal,giraffe,2546,101
+kitchen,spoon,3529,153
+kitchen,bowl,7111,314
+animal,horse,2941,128
+kitchen,cup,9189,390
+animal,cow,1968,87
+animal,dog,4385,177
+sports,tennis racket,3394,167
+sports,surfboard,3486,149
+furniture,potted plant,4452,172
+furniture,dining table,11837,501

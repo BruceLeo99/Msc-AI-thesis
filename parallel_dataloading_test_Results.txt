@@ -1,0 +1,39 @@
+Start testing with 10 classes
+Start testing with 0 workers
+Time taken to load data with 0 workers: 1181.93 seconds
+Start testing with 2 workers
+Time taken to load data with 2 workers: 388.26 seconds
+Start testing with 4 workers
+Time taken to load data with 4 workers: 381.35 seconds
+Start testing with 8 workers
+Time taken to load data with 8 workers: 382.28 seconds
+Start testing with 16 workers
+Time taken to load data with 16 workers: 383.88 seconds
+Start testing with 32 workers
+Time taken to load data with 32 workers: 387.24 seconds
+Start testing with 20 classes
+Start testing with 0 workers
+Time taken to load data with 0 workers: 2870.10 seconds
+Start testing with 2 workers
+Time taken to load data with 2 workers: 867.35 seconds
+Start testing with 4 workers
+Time taken to load data with 4 workers: 846.81 seconds
+Start testing with 8 workers
+Time taken to load data with 8 workers: 847.36 seconds
+Start testing with 16 workers
+Time taken to load data with 16 workers: 849.87 seconds
+Start testing with 32 workers
+Time taken to load data with 32 workers: 852.42 seconds
+Start testing with 30 classes
+Start testing with 0 workers
+Time taken to load data with 0 workers: 3247.57 seconds
+Start testing with 2 workers
+Time taken to load data with 2 workers: 1112.21 seconds
+Start testing with 4 workers
+Time taken to load data with 4 workers: 1099.20 seconds
+Start testing with 8 workers
+Time taken to load data with 8 workers: 1100.65 seconds
+Start testing with 16 workers
+Time taken to load data with 16 workers: 1102.11 seconds
+Start testing with 32 workers
+Time taken to load data with 32 workers: 1104.91 seconds

@@ -45,8 +45,7 @@ if __name__ == "__main__":
         transform='vgg16',
         target_transform='integer',
         load_captions=False,
-        save_result=False,
-        load_from_local = False
+        save_result=False
     )
 
     test_data_10classes = prepare_data_manually(
@@ -57,8 +56,7 @@ if __name__ == "__main__":
         transform='vgg16',
         target_transform='integer',
         load_captions=False,
-        save_result=False,
-        load_from_local = False
+        save_result=False
     )
 
     train_data_10classes,val_data_10classes,test_data_10classes = eliminate_leaked_data(

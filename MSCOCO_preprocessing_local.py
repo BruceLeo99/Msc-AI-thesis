@@ -20,7 +20,7 @@ from collections import Counter, defaultdict
 import requests
 from PIL import Image
 from io import BytesIO
-
+import json 
 import time
 
 
@@ -145,9 +145,9 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, shuffle=True, verbose=
         print(f"Number of images: {len(img_ids)}")
         print(f"Image ids: {img_ids}")
         
-    # Store the image ids, image_url and captions in data_dict
+    # Store the image ids, image_url, image_filename, captions in data_dict
     for img_id in img_ids:
-        img_filename = coco_data_path_dict[data_type]['instance_path'].filenames[img_id]
+        img_filename = coco_data_path_dict[data_type]['instance_path'].loadImgs(img_id)[0]['file_name']
         
         data_info = {
             'img_id': img_id, # E.g.: 12345
@@ -172,28 +172,53 @@ class MSCOCOCustomDataset(Dataset):
     param load_captions: whether to load the captions
     """
 
-    def __init__(self, data_list, load_from_local=True,
+    def __init__(self, data_list=None, load_from_json=None, load_from_local=True,
                  transform=None, target_transform=None, load_captions=False):
         
         """
         param data_list: list of dictionaries containing image information
+        param load_from_json: path to the json file containing the data
         param transform: optional transform to apply to the images
         param target_transform: optional transform to apply to the labels
         param load_from_local: whether to load the data from local storage
         param load_captions: whether to load the captions
         """
-        self.data = data_list
+
         self.load_from_local = load_from_local
-        self.img_ids = [item['img_id'] for item in data_list]
-        self.img_labels = dict(zip(self.img_ids, [item['category'] for item in data_list]))
-        self.img_urls = dict(zip(self.img_ids, [item['url'] for item in data_list]))
-        self.img_filenames = dict(zip(self.img_ids, [item['img_filename'] for item in data_list]))
         self.load_captions = load_captions
-        self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in data_list]))
-        self.img_supercategories = dict(zip(self.img_ids, [item['supercategory'] for item in data_list]))
-    
+        self.load_from_json = load_from_json       
         self.transform = transform
         self.target_transform = target_transform
+
+        if any([self.transform, self.target_transform]) is None:
+            raise ValueError("You did not provide the transform or target_transform")
+
+        if data_list is not None:
+            self.data = data_list
+            self.img_ids = [item['img_id'] for item in self.data]
+            self.img_labels = dict(zip(self.img_ids, [item['category'] for item in self.data]))
+            self.img_urls = dict(zip(self.img_ids, [item['url'] for item in self.data]))
+            self.img_filenames = dict(zip(self.img_ids, [item['img_filename'] for item in self.data]))
+            self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in self.data]))
+            self.img_supercategories = dict(zip(self.img_ids, [item['supercategory'] for item in self.data]))
+
+        elif self.load_from_json is not None:
+            if not self.load_from_json.endswith(".json"):
+                raise ValueError("The load_from_json path must be a JSON file ending with .json")
+
+            with open(f"{self.load_from_json}", "r") as f:
+                data_info = json.load(f)
+                self.data = data_info
+                self.img_ids = data_info['img_ids']
+                self.img_labels = data_info['img_labels']
+                self.img_urls = data_info['img_urls']
+                self.img_filenames = data_info['img_filenames']
+                self.img_captions = data_info['img_captions']
+                self.img_supercategories = data_info['img_supercategories']
+
+        else:
+            raise ValueError("You did not provide the data source. Either data_list or load_from_json must be provided")
+
 
         # Define transformation modes for different backbone encoders
         # VGG16 or ResNet18 transformation
@@ -318,6 +343,19 @@ class MSCOCOCustomDataset(Dataset):
             return image, image_label
         
 
+def save_data_to_json(dataset, dataset_name):
+    data_info = {}
+    data_info['img_ids'] = dataset.img_ids
+    data_info['img_labels'] = dataset.img_labels
+    data_info['img_urls'] = dataset.img_urls
+    data_info['img_filenames'] = dataset.img_filenames
+    data_info['img_captions'] = dataset.img_captions
+    data_info['img_supercategories'] = dataset.img_supercategories
+    with open(f"{dataset_name}.json", "w") as f:
+        json.dump(data_info, f)
+    
+    print(f"Data saved to {dataset_name}.json")        
+
 def prepare_data_manually(*categories, num_instances=100, load_from_local=True, for_test=False, split_val=False, val_size=None, experiment_name=None,
                  transform=None, target_transform=None, load_captions=False, save_result=False):
     """
@@ -391,7 +429,7 @@ def prepare_data_manually(*categories, num_instances=100, load_from_local=True, 
     
 
 def prepare_data_from_preselected_categories(selection_csv, data_type, load_from_local=True, split_val=False, val_size=0.2, experiment_name=None,
-                 transform=None, target_transform=None, load_captions=False, save_result=False):
+                 transform=None, target_transform=None, load_captions=False, save_result=False, load_from_json=None):
     
     """
     Prepare the data from a list of preselected categories, which is preloaded in a csv file.
@@ -409,6 +447,7 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, load_from
     param str target_transform: transform to apply to the labels. Choose from 'one_hot', 'integer'
     param bool load_captions: whether to load the captions
     param bool save_result: whether to save the result
+    param str load_from_json: path to the json file containing the data
 
     returns:
     1. train_data: MSCOCOCustomDataset format if data_type is 'train' and split_val is False, containing data only for training
@@ -448,12 +487,13 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, load_from
     if data_type == 'train':
         train_data = MSCOCOCustomDataset(train_list, load_from_local=load_from_local, transform=transform, 
                                     target_transform=target_transform, 
-          
+                                    load_from_json=load_from_json,
                                     load_captions=load_captions)
     
         if split_val:
             val_data = MSCOCOCustomDataset(val_list, load_from_local=load_from_local, transform=transform, 
                                     target_transform=target_transform, 
+                                    load_from_json=load_from_json,
                                     load_captions=load_captions)
             return train_data, val_data
         
@@ -927,21 +967,21 @@ if __name__ == '__main__':
     # show_image(<an image ID that is known to exist>, 'train')
 
     ### Load data that stores as a torch.utils.data.Dataset
-    data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100, 'train'), load_captions=True)
+    # data_dog = MSCOCOCustomDataset(load_from_COCOAPI('dog', 100, 'train'), load_captions=True)
     # data_cat = MSCOCOCustomDataset(load_from_COCOAPI('cat', 100, 'train'))
     # data_zebra = MSCOCOCustomDataset(load_from_COCOAPI('zebra', 100, 'train'), load_captions=True)
     # data_giraffe = MSCOCOCustomDataset(load_from_COCOAPI('giraffe', 100, 'train'))
     # data_horse = MSCOCOCustomDataset(load_from_COCOAPI('horse', 100, 'test'))
     # data_airplane = MSCOCOCustomDataset(load_from_COCOAPI('airplane', 100, 'test'), load_captions=True)
 
-    print(f"filenames of dog images: {data_dog.img_filenames}")
-    print(f"Ids of dog images: {data_dog.img_ids}")
+    # print(f"filenames of dog images: {data_dog.img_filenames}")
+    # print(f"Ids of dog images: {data_dog.img_ids}")
 
-    image, label, captions = data_dog[5] 
+    # image, label, captions = data_dog[5] 
 
-    print("Label:", label)
-    print("Captions:", captions)
-    image.show() 
+    # print("Label:", label)
+    # print("Captions:", captions)
+    # image.show() 
 
     # print(f"Number of images: {len(data_airplane)}")
     # print(data_airplane.img_ids)
@@ -966,4 +1006,163 @@ if __name__ == '__main__':
 
     # end_time = time.time()
     # print(f"Time taken to prepare data: {end_time - start_time} seconds")
+
+    #####################################################################
+    # LOAD CLEAN NON-LEAKED DATA TO JSON FOR FAST RELOAD
+    #####################################################################
+
+    # chosen_dataset_10classes = "chosen_categories_3_10.csv"
+    # chosen_dataset_20classes = "chosen_categories_6_20.csv"
+    # chosen_dataset_30classes = "chosen_categories_10_30.csv"
+
+    # save_result = True
+
+    # chosen_dataset_df_10classes = pd.read_csv(chosen_dataset_10classes)
+    # chosen_dataset_categories_10classes = chosen_dataset_df_10classes['Category Name'].unique().tolist()
+
+    # chosen_dataset_df_20classes = pd.read_csv(chosen_dataset_20classes)
+    # chosen_dataset_categories_20classes = chosen_dataset_df_20classes['Category Name'].unique().tolist()
+
+    # chosen_dataset_df_30classes = pd.read_csv(chosen_dataset_30classes)
+    # chosen_dataset_categories_30classes = chosen_dataset_df_30classes['Category Name'].unique().tolist()
+
+    # ### 10 classes dataset
+    # train_data_10classes, val_data_10classes = prepare_data_from_preselected_categories(
+    #     chosen_dataset_10classes,
+    #     "train",
+    #     load_from_local=True,
+    #     split_val=True,
+    #     val_size=0.2,
+    #     experiment_name=chosen_dataset_10classes,
+    #     transform='vgg16',
+    #     target_transform='integer',
+    #     save_result=save_result,
+    # )
+
+    # test_data_10classes = prepare_data_from_preselected_categories(
+    #     chosen_dataset_10classes,
+    #     "test",
+    #     load_from_local=True,
+    #     split_val=False,
+    #     experiment_name=chosen_dataset_10classes,
+    #     transform='vgg16',
+    #     target_transform='integer',
+    #     save_result=save_result,
+    # )
+
+    # train_data_10classes, val_data_10classes, test_data_10classes = eliminate_leaked_data(
+    #     chosen_dataset_10classes,
+    #     train_data_10classes,
+    #     val_data_10classes,
+    #     test_data_10classes,
+    #     save_result=save_result,
+    # )
+
+    # ### 20 classes dataset
+    # train_data_20classes, val_data_20classes = prepare_data_from_preselected_categories(
+    #     chosen_dataset_20classes,
+    #     "train",
+    #     load_from_local=True,
+    #     split_val=True,
+    #     val_size=0.2,
+    #     experiment_name=chosen_dataset_20classes,
+    #     transform='vgg16',
+    #     target_transform='integer',
+    #     save_result=save_result
+    # )
+
+    # test_data_20classes = prepare_data_from_preselected_categories(
+    #     chosen_dataset_20classes,
+    #     "test",
+    #     load_from_local=True,
+    #     split_val=False,
+    #     experiment_name=chosen_dataset_20classes,
+    #     transform='vgg16',
+    #     target_transform='integer',
+    #     save_result=save_result,
+    # )
+
+    # train_data_20classes, val_data_20classes, test_data_20classes = eliminate_leaked_data(
+    #     chosen_dataset_20classes,
+    #     train_data_20classes,
+    #     val_data_20classes,
+    #     test_data_20classes,
+    #     save_result=save_result,
+    # )
+
+    # ### 30 classes dataset
+    # train_data_30classes, val_data_30classes = prepare_data_from_preselected_categories(
+    #     chosen_dataset_30classes,
+    #     "train",
+    #     load_from_local=True,
+    #     split_val=True,
+    #     val_size=0.2,
+    #     experiment_name=chosen_dataset_30classes,
+    #     save_result=save_result,
+    #     transform='vgg16',
+    #     target_transform='integer'
+    # )
+
+    # test_data_30classes = prepare_data_from_preselected_categories(
+    #     chosen_dataset_30classes,
+    #     "test",
+    #     load_from_local=True,
+    #     split_val=False,
+    #     experiment_name=chosen_dataset_30classes,
+    #     transform='vgg16',
+    #     target_transform='integer',
+    #     save_result=save_result
+    # )
+
+    # train_data_30classes, val_data_30classes, test_data_30classes = eliminate_leaked_data(
+    #     chosen_dataset_30classes,
+    #     train_data_30classes,
+    #     val_data_30classes,
+    #     test_data_30classes,
+    #     save_result=save_result
+    # )
+    
+
+    # save_data_to_json(train_data_10classes, "train_data_10classes")
+    # save_data_to_json(val_data_10classes, "val_data_10classes")
+    # save_data_to_json(test_data_10classes, "test_data_10classes")
+    # save_data_to_json(train_data_20classes, "train_data_20classes")
+    # save_data_to_json(val_data_20classes, "val_data_20classes")
+    # save_data_to_json(test_data_20classes, "test_data_20classes")
+    # save_data_to_json(train_data_30classes, "train_data_30classes")
+    # save_data_to_json(val_data_30classes, "val_data_30classes")
+    # save_data_to_json(test_data_30classes, "test_data_30classes")
+
+
+    # Test if data is probably loaded to JSON and can be reloaded
+    print("Reload test")
+
+    start_time = time.time()
+    train_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_10classes.json")
+    val_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_10classes.json")
+    test_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_10classes.json")
+    end_time = time.time()
+    print(f"Time taken to load train_data_10classes: {end_time - start_time} seconds")
+
+    start_time = time.time()
+    train_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_20classes.json")
+    val_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_20classes.json")
+    test_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_20classes.json")
+    end_time = time.time()
+    print(f"Time taken to load train_data_20classes: {end_time - start_time} seconds")
+
+    start_time = time.time()
+    train_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_30classes.json")
+    val_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_30classes.json")
+    test_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_30classes.json")
+    end_time = time.time()
+    print(f"Time taken to load train_data_30classes: {end_time - start_time} seconds")
+
+    print(train_data_10classes_json.img_ids)
+    print(train_data_20classes_json.img_ids)
+    print(train_data_30classes_json.img_ids)
+    print(val_data_10classes_json.img_labels)
+
+
+
 
