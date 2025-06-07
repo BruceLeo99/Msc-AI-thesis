@@ -1,6 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
+import torch
+import gc
 
 def get_accuracy(df, mode):
     """
@@ -149,3 +151,18 @@ def get_avg_p_pair_dist(df_filename, make_plot=False,save_plot=False):
         plt.show()
 
     return avg_pair_dist
+
+def print_gpu_memory_status():
+    """Print current GPU memory usage."""
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3  # Convert to GB
+            allocated_memory = torch.cuda.memory_allocated(i) / 1024**3
+            cached_memory = torch.cuda.memory_reserved(i) / 1024**3
+            print(f"\nGPU {i} Memory Status:")
+            print(f"Total Memory: {total_memory:.2f} GB")
+            print(f"Allocated Memory: {allocated_memory:.2f} GB")
+            print(f"Cached Memory: {cached_memory:.2f} GB")
+            print(f"Free Memory: {total_memory - allocated_memory:.2f} GB")
+    else:
+        print("No GPU available")
