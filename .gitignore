@@ -20,6 +20,7 @@ best_models/
 outdated_models/
 visualbert/
 shell_scripts/
+test scripts/
 
 # Individual files and scripts
 ML-DAS-Ada-Snellius.pdf 

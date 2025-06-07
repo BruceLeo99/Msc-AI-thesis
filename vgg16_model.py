@@ -113,7 +113,6 @@ class VGG16(nn.Module):
         return out
     
 def train_vgg16(
-        model,
         train_data,
         val_data,
         model_name,
@@ -134,7 +133,6 @@ def train_vgg16(
     Returns the path to the best model.
 
     Args:
-        model: VGG16 model to train
         train_data: Training data
         val_data: Validation data
         model_name: Name of the model
@@ -153,8 +151,13 @@ def train_vgg16(
 
     if not os.path.exists(f"results"):
         os.makedirs(f"results")
+
+    model = VGG16(num_classes=train_data.get_num_classes()).to(device)
+
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs for training")
+        model = torch.nn.DataParallel(model)
     
-    model = model.to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
@@ -166,27 +169,22 @@ def train_vgg16(
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_data, shuffle=False)
     else:
-        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-        val_loader = DataLoader(val_data, shuffle=False, num_workers=num_workers)
-
-    # Optimize data loading for better GPU utilization
-    # num_workers = min(8, os.cpu_count() or 4)
-    # train_loader = DataLoader(
-    #     train_data, 
-    #     batch_size=batch_size, 
-    #     shuffle=True,
-    #     num_workers=num_workers,
-    #     pin_memory=True,
-    #     prefetch_factor=2
-    # )
-    # val_loader = DataLoader(
-    #     val_data, 
-    #     batch_size=batch_size, 
-    #     shuffle=False,
-    #     num_workers=num_workers,
-    #     pin_memory=True,
-    #     prefetch_factor=2,
-    # )
+        train_loader = DataLoader(
+            train_data, 
+            batch_size=batch_size, 
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True,
+            prefetch_factor=2
+        )
+        val_loader = DataLoader(
+            val_data, 
+            batch_size=batch_size, 
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+            prefetch_factor=2,
+        )
     
     # Original single train/val split training
     print("Starting Training.\nModel: VGG16 baseline with No Prototypes")
@@ -323,7 +321,6 @@ def train_vgg16(
 
 
 def train_vgg16_with_CV(
-        model,
         train_data,
         n_folds,
         num_epochs,
@@ -335,7 +332,8 @@ def train_vgg16_with_CV(
         save_result = False,
         early_stopping_patience = 10,
         lr_increase_patience = 5,
-        random_state = 42
+        random_state = 42,
+        num_workers = 0
 ):
     
     """
@@ -344,7 +342,6 @@ def train_vgg16_with_CV(
     Returns the path to the best model.
 
     Args:
-        model: VGG16 model to train
         train_data: Training data
         n_val_splits: Number of folds for cross-validation
         num_epochs: Number of epochs to train
@@ -357,6 +354,7 @@ def train_vgg16_with_CV(
         early_stopping_patience: Number of epochs to wait before early stopping
         lr_increase_patience: Number of epochs to wait before increasing learning rate
         random_state: Random state for cross-validation. For reproducibility, set 42 by default.
+        num_workers: Number of workers for data loading. For better GPU utilization, set 0 by default.
     """
     if not os.path.exists(f"best_models"):
         os.makedirs(f"best_models")
@@ -385,8 +383,11 @@ def train_vgg16_with_CV(
         print(f"{'='*60}")
 
         # Create fresh model for each fold
-        num_classes = model.fc2[0].out_features
-        fold_model = VGG16(num_classes=num_classes).to(device)
+        fold_model = VGG16(num_classes=train_data.get_num_classes()).to(device)
+        if torch.cuda.device_count() > 1:
+            print(f"Using {torch.cuda.device_count()} GPUs for training")
+            fold_model = torch.nn.DataParallel(fold_model)
+
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(fold_model.parameters(), lr=learning_rate)
 
@@ -399,8 +400,26 @@ def train_vgg16_with_CV(
         train_subset = Subset(train_data, train_index)
         val_subset = Subset(train_data, val_index)
 
-        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False) 
+        if num_workers == 0:
+            train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False) 
+        else:
+            train_loader = DataLoader(
+                train_subset, 
+                batch_size=batch_size, 
+                shuffle=True,
+                num_workers=num_workers,
+                pin_memory=True,
+                prefetch_factor=2
+            )
+            val_loader = DataLoader(
+                val_subset, 
+                batch_size=batch_size, 
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=True,
+                prefetch_factor=2
+            )
 
         print(f"Fold {fold+1} - Train: {len(train_subset)}, Val: {len(val_subset)}")
 
@@ -562,7 +581,14 @@ def train_vgg16_with_CV(
     
 
 
-def test_vgg16(model_path, experiment_name, test_data, device, num_classes, positive_class: int = 1, save_result=False, verbose=False):
+def test_vgg16(model_path, 
+               experiment_name, 
+               test_data, 
+               device, 
+               positive_class: int = 1, 
+               save_result=False, 
+               verbose=False,
+               ):
     """
     Loads a trained VGG16 model from a .pth file and tests it on the test set.
     Additionally returns image-index lists for TP, FP, TN, FN (binary-class assumption).
@@ -582,7 +608,7 @@ def test_vgg16(model_path, experiment_name, test_data, device, num_classes, posi
     if not os.path.exists(f"results/confusion_matrices"):
         os.makedirs(f"results/confusion_matrices")
 
-    model = VGG16(num_classes=num_classes).to(device)
+    model = VGG16(num_classes=test_data.get_num_classes()).to(device)
     model.load_state_dict(torch.load(model_path))
     test_loader = DataLoader(test_data, shuffle=False)
     model.eval()

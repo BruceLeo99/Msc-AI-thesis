@@ -44,7 +44,7 @@ trainDir='train2017'
 valDir='val2017'
 testDir='test2017'
 
-dataset_info_df = pd.read_csv('dataset_info.csv')
+dataset_info_df = pd.read_csv('dataset_infos/dataset_info.csv')
 category_names = dataset_info_df['Category Name'].unique()
 
 # Create a mask to map the category name to the supercategory name
@@ -195,6 +195,7 @@ class MSCOCOCustomDataset(Dataset):
 
         if data_list is not None:
             self.data = data_list
+            self.dataset_length = len(self.data)
             self.img_ids = [item['img_id'] for item in self.data]
             self.img_labels = dict(zip(self.img_ids, [item['category'] for item in self.data]))
             self.img_urls = dict(zip(self.img_ids, [item['url'] for item in self.data]))
@@ -209,12 +210,18 @@ class MSCOCOCustomDataset(Dataset):
             with open(f"{self.load_from_json}", "r") as f:
                 data_info = json.load(f)
                 self.data = data_info
+                self.dataset_length = len(data_info['img_ids'])
                 self.img_ids = data_info['img_ids']
                 self.img_labels = data_info['img_labels']
                 self.img_urls = data_info['img_urls']
                 self.img_filenames = data_info['img_filenames']
                 self.img_captions = data_info['img_captions']
                 self.img_supercategories = data_info['img_supercategories']
+
+                # JSON converts the image ids to string when using as keys of other dataset ingo,
+                # So we need to convert the self.img_ids to string if we load data from JSON.
+                # If load from elsewhere with COCO original API, there is no need to convert.
+                self.img_ids = [str(id) for id in self.img_ids]
 
         else:
             raise ValueError("You did not provide the data source. Either data_list or load_from_json must be provided")
@@ -246,7 +253,7 @@ class MSCOCOCustomDataset(Dataset):
         return self.label_name_idx[label]
 
     def __len__(self):
-        return len(self.data)
+        return self.dataset_length
         
     def get_dataset_labels(self):
         return self.label_name_idx
@@ -272,13 +279,12 @@ class MSCOCOCustomDataset(Dataset):
     def get_image_filename(self, idx):
         return self.img_filenames[self.img_ids[idx]]
     
-
     def read_image_from_local(self, image_id):
         """
         Reads an image from a given image_id
         """
         # Use direct dictionary access with image_id
-        if image_id not in self.img_filenames:
+        if image_id not in self.img_ids:
             raise KeyError(f"Image ID {image_id} not found in dataset")
         
         image_filename = self.img_filenames[image_id]
@@ -313,8 +319,8 @@ class MSCOCOCustomDataset(Dataset):
         """ 
         Retrieves an image and its corresponding label, also the caption if it is enabled.
         """
-        if idx >= len(self.data) or idx < 0:
-            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.data)}")
+        if idx >= self.dataset_length or idx < 0:
+            raise IndexError(f"Index {idx} out of range for dataset of size {self.dataset_length}")
             
         image_id = self.img_ids[idx]
         if self.load_from_local:
@@ -951,7 +957,7 @@ def check_category_distribution(experiment_name, train_data, val_data, test_data
     
     return assessment_result
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
     #########################################################################################
     # Example usage of loading data from a single category and showing an example image
@@ -1135,33 +1141,33 @@ if __name__ == '__main__':
 
 
     # Test if data is probably loaded to JSON and can be reloaded
-    print("Reload test")
+    # print("Reload test")
 
-    start_time = time.time()
-    train_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_10classes.json")
-    val_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_10classes.json")
-    test_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_10classes.json")
-    end_time = time.time()
-    print(f"Time taken to load train_data_10classes: {end_time - start_time} seconds")
+    # start_time = time.time()
+    # train_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_10classes.json")
+    # val_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_10classes.json")
+    # test_data_10classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_10classes.json")
+    # end_time = time.time()
+    # print(f"Time taken to load train_data_10classes: {end_time - start_time} seconds")
 
-    start_time = time.time()
-    train_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_20classes.json")
-    val_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_20classes.json")
-    test_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_20classes.json")
-    end_time = time.time()
-    print(f"Time taken to load train_data_20classes: {end_time - start_time} seconds")
+    # start_time = time.time()
+    # train_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_20classes.json")
+    # val_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_20classes.json")
+    # test_data_20classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_20classes.json")
+    # end_time = time.time()
+    # print(f"Time taken to load train_data_20classes: {end_time - start_time} seconds")
 
-    start_time = time.time()
-    train_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_30classes.json")
-    val_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_30classes.json")
-    test_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_30classes.json")
-    end_time = time.time()
-    print(f"Time taken to load train_data_30classes: {end_time - start_time} seconds")
+    # start_time = time.time()
+    # train_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="train_data_30classes.json")
+    # val_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="val_data_30classes.json")
+    # test_data_30classes_json = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="test_data_30classes.json")
+    # end_time = time.time()
+    # print(f"Time taken to load train_data_30classes: {end_time - start_time} seconds")
 
-    print(train_data_10classes_json.img_ids)
-    print(train_data_20classes_json.img_ids)
-    print(train_data_30classes_json.img_ids)
-    print(val_data_10classes_json.img_labels)
+    # print(train_data_10classes_json.img_ids)
+    # print(train_data_20classes_json.img_ids)
+    # print(train_data_30classes_json.img_ids)
+    # print(val_data_10classes_json.img_labels)
 
 
 

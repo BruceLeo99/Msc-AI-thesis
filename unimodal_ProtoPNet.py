@@ -34,6 +34,7 @@ def train_protopnet(
         val_data,
         model_name,
         device,
+        num_prototypes=10,
         num_epochs=50,
         learning_rate=0.0001,
         batch_size=32,
@@ -42,9 +43,9 @@ def train_protopnet(
         early_stopping_patience=10,
         lr_increase_patience=5,
         base_architecture='vgg16',
-        prototype_shape=(1,1,1,1),
         class_specific=True,
-        get_full_results=True
+        get_full_results=True,
+        num_workers=0
 ):
     """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
 
@@ -58,6 +59,8 @@ def train_protopnet(
 
     num_classes = train_data.get_num_classes()
 
+    prototype_shape = (num_classes*num_prototypes, 512, 1, 1)
+
     model = construct_PPNet(base_architecture=base_architecture, 
                             pretrained=True, 
                             prototype_shape=prototype_shape, 
@@ -66,14 +69,35 @@ def train_protopnet(
                             img_size=224)
     
     model = model.to(device)
-    # Wrap model in DataParallel
+    # Always wrap in DataParallel since ProtoPNet code expects model.module access
     model = torch.nn.DataParallel(model)
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs for training")
+    else:
+        print(f"Using 1 GPU for training (wrapped in DataParallel for ProtoPNet compatibility)")
     
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    if num_workers == 0:
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    else:
+        train_loader = DataLoader(train_data, 
+                                  batch_size=batch_size, 
+                                  shuffle=True, 
+                                  num_workers=num_workers,
+                                  pin_memory=True,
+                                  prefetch_factor=2
+                                  )
+        
+        val_loader = DataLoader(val_data, 
+                                batch_size=batch_size, 
+                                shuffle=False, 
+                                num_workers=num_workers,
+                                pin_memory=True,
+                                prefetch_factor=2
+                                )
 
     # CSV header
     if save_result:
@@ -152,9 +176,8 @@ def test_protopnet(model_path,
                    experiment_name, 
                    test_data, 
                    device, 
-                   num_classes, 
+                   num_prototypes=10,
                    base_architecture='vgg16',
-                   prototype_shape=(1,1,1,1),
                    class_specific=True,
                    get_full_results=True,
                    save_result=False, 
@@ -167,6 +190,9 @@ def test_protopnet(model_path,
 
     if not os.path.exists("results"):
         os.makedirs("results")
+
+    num_classes = test_data.get_num_classes()
+    prototype_shape = (num_classes*num_prototypes, 512, 1, 1)
 
     model = construct_PPNet(base_architecture=base_architecture, 
                             pretrained=True, 
@@ -188,8 +214,12 @@ def test_protopnet(model_path,
         
     model.load_state_dict(new_state_dict)
     model = model.to(device)
-    # Wrap model in DataParallel
+    # Always wrap in DataParallel since ProtoPNet code expects model.module access
     model = torch.nn.DataParallel(model)
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs for testing")
+    else:
+        print(f"Using 1 GPU for testing (wrapped in DataParallel for ProtoPNet compatibility)")
 
     test_loader = DataLoader(test_data, shuffle=False)
 
@@ -320,93 +350,90 @@ def test_protopnet(model_path,
     return results
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Create results directory if it doesn't exist
-    if not os.path.exists("results"):
-        os.makedirs("results")
+#     # Create results directory if it doesn't exist
+#     if not os.path.exists("results"):
+#         os.makedirs("results")
 
-    # Memory optimization settings
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.backends.cudnn.benchmark = True
-        torch.cuda.set_per_process_memory_fraction(0.9)
+#     # Memory optimization settings
+#     if torch.cuda.is_available():
+#         torch.cuda.empty_cache()
+#         torch.backends.cudnn.benchmark = True
+#         torch.cuda.set_per_process_memory_fraction(0.9)
 
-    # Define model parameters
-    base_architecture = 'vgg16'
-    prototype_shape = (100, 512, 1, 1)
-    class_specific = True
-    get_full_results = True
-    num_epochs = 50
-    learning_rate = 0.0001
-    batch_size = 4
-    lr_increment_rate = 0.0001
-    save_result = True
-    early_stopping_patience = 10
-    lr_increase_patience = 5
-    experiment_name = 'ProtoPNet_testrun'
+#     # Define model parameters
+#     base_architecture = 'vgg16'
+#     class_specific = True
+#     get_full_results = True
+#     num_epochs = 50
+#     learning_rate = 0.0001
+#     batch_size = 4
+#     lr_increment_rate = 0.0001
+#     save_result = True
+#     early_stopping_patience = 10
+#     lr_increase_patience = 5
+#     experiment_name = 'ProtoPNet_testrun'
 
-    # Define dataset parameters
-    dataset_info = 'chosen_categories_3_10_v3.csv'
-    df_dataset_info = pd.read_csv(dataset_info)
-    categories = df_dataset_info["Category Name"].unique()
-    num_classes = len(categories)
+#     # Define dataset parameters
+#     dataset_info = 'chosen_categories_3_10_v3.csv'
+#     df_dataset_info = pd.read_csv(dataset_info)
+#     categories = df_dataset_info["Category Name"].unique()
+#     num_classes = len(categories)
 
-    # # Define dataset parameters
-    # train_data, val_data = prepare_data_manually(*categories, 
-    #                                              num_instances=15, 
-    #                                              for_test=False, 
-    #                                              split=True, 
-    #                                              split_size=0.15, 
-    #                                              experiment_name=experiment_name,
-    #                                              transform=base_architecture,
-    #                                              target_transform='integer',
-    #                                              load_captions=False,
-    #                                              save_result=save_result)
+#     # # Define dataset parameters
+#     # train_data, val_data = prepare_data_manually(*categories, 
+#     #                                              num_instances=15, 
+#     #                                              for_test=False, 
+#     #                                              split=True, 
+#     #                                              split_size=0.15, 
+#     #                                              experiment_name=experiment_name,
+#     #                                              transform=base_architecture,
+#     #                                              target_transform='integer',
+#     #                                              load_captions=False,
+#     #                                              save_result=save_result)
     
-    test_data = prepare_data_manually(*categories, 
-                                      num_instances=10, 
-                                      for_test=True, 
-                                      split=False, 
-                                      experiment_name=experiment_name,
-                                      transform=base_architecture,
-                                      target_transform='integer',
-                                      load_captions=False,
-                                      save_result=save_result)
+#     test_data = prepare_data_manually(*categories, 
+#                                       num_instances=10, 
+#                                       for_test=True, 
+#                                       split=False, 
+#                                       experiment_name=experiment_name,
+#                                       transform=base_architecture,
+#                                       target_transform='integer',
+#                                       load_captions=False,
+#                                       save_result=save_result)
     
-    # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, save_result=save_result)
+#     # train_data, val_data, test_data = eliminate_leaked_data(experiment_name, train_data, val_data, test_data, save_result=save_result)
     
 
-    # best_model_path = train_protopnet(train_data, 
-    #                                   val_data, 
-    #                                   experiment_name, 
-    #                                   device, 
-    #                                   num_epochs, 
-    #                                   learning_rate, 
-    #                                   batch_size, 
-    #                                   lr_increment_rate, 
-    #                                   save_result, 
-    #                                   early_stopping_patience, 
-    #                                   lr_increase_patience, 
-    #                                   base_architecture, 
-    #                                   prototype_shape, 
-    #                                   class_specific, 
-    #                                   get_full_results=True)
+#     # best_model_path = train_protopnet(train_data, 
+#     #                                   val_data, 
+#     #                                   experiment_name, 
+#     #                                   device, 
+#     #                                   num_epochs, 
+#     #                                   learning_rate, 
+#     #                                   batch_size, 
+#     #                                   lr_increment_rate, 
+#     #                                   save_result, 
+#     #                                   early_stopping_patience, 
+#     #                                   lr_increase_patience, 
+#     #                                   base_architecture, 
+#     #                                   prototype_shape, 
+#     #                                   class_specific, 
+#     #                                   get_full_results=True)
 
-    best_model_path = "best_models/ProtoPNet_testrun_best.pth"
+#     best_model_path = "best_models/ProtoPNet_testrun_best.pth"
     
-    test_results = test_protopnet(best_model_path, 
-                                experiment_name, 
-                                test_data, 
-                                device, 
-                                num_classes, 
-                                base_architecture=base_architecture,
-                                prototype_shape=prototype_shape,
-                                class_specific=class_specific,
-                                get_full_results=get_full_results,
-                                save_result=save_result, 
-                                verbose=False,
-                                use_l1_mask=False,
-                                coefs=None)
+#     test_results = test_protopnet(best_model_path, 
+#                                 experiment_name, 
+#                                 test_data, 
+#                                 device, 
+#                                 base_architecture=base_architecture,
+#                                 class_specific=class_specific,
+#                                 get_full_results=get_full_results,
+#                                 save_result=save_result, 
+#                                 verbose=False,
+#                                 use_l1_mask=False,
+#                                 coefs=None)

@@ -88,7 +88,6 @@ class ResNet18(nn.Module):
         return out
     
 def train_resnet18(
-        model,
         train_data,
         val_data,
         model_name, 
@@ -100,6 +99,7 @@ def train_resnet18(
         save_result=False,
         early_stopping_patience=10,
         lr_increase_patience=5,
+        num_workers=0
 ):
     """
     Train ResNet18 on provided train/val splits (no cross-validation).
@@ -107,7 +107,6 @@ def train_resnet18(
     arguments & logging strategy work for both backbones.
 
     Args:
-        model: The model to train.
         train_data: The training data.
         val_data: The validation data.
         model_name: The name of the model.
@@ -119,6 +118,7 @@ def train_resnet18(
         save_result: Whether to save the results.
         early_stopping_patience: The early stopping patience.
         lr_increase_patience: The learning rate increase patience.
+        num_workers: Number of workers for DataLoader
 
     Returns the filepath of the best model saved on validation accuracy.
     """
@@ -132,12 +132,32 @@ def train_resnet18(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     
-    model = model.to(device)
+    model = ResNet18(num_classes=train_data.get_num_classes()).to(device)
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs for training")
+        model = torch.nn.DataParallel(model)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_data, shuffle=False)
+    if num_workers == 0:
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_data, shuffle=False)
+    else:
+        train_loader = DataLoader(
+            train_data, 
+            batch_size=batch_size, 
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+        val_loader = DataLoader(
+            val_data, 
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True
+        )
 
     if save_result:
         with open(f"results/{model_name}_result.csv", "w") as f:
@@ -246,7 +266,6 @@ def train_resnet18(
 
 
 def train_resnet18_with_CV(
-        model,
         train_data,
         n_folds,
         num_epochs,
@@ -259,6 +278,7 @@ def train_resnet18_with_CV(
         early_stopping_patience=10,
         lr_increase_patience=5,
         random_state=42,
+        num_workers=0
 ):
     """
     Trains a ResNet18 model with K-Fold Cross-Validation on the training set and validates it on the validation set.
@@ -266,7 +286,6 @@ def train_resnet18_with_CV(
     Returns the path to the best model.
 
     Args:
-        model: ResNet18 model to train
         train_data: Training data
         n_val_splits: Number of folds for cross-validation
         num_epochs: Number of epochs to train
@@ -279,6 +298,7 @@ def train_resnet18_with_CV(
         early_stopping_patience: Number of epochs to wait before early stopping
         lr_increase_patience: Number of epochs to wait before increasing learning rate
         random_state: Random state for cross-validation. For reproducibility, set 42 by default.
+        num_workers: Number of workers for DataLoader
     """
 
     if not os.path.exists(f"best_models"):
@@ -305,15 +325,32 @@ def train_resnet18_with_CV(
         print(f"\n{'='*60}\nStart training for FOLD {fold+1}/{n_folds}\n{'='*60}")
 
         # Initialize model for each fold
-        num_classes = model.fc.out_features
-        fold_model = ResNet18(num_classes=num_classes).to(device)
+        fold_model = ResNet18(num_classes=train_data.get_num_classes()).to(device)
+        if torch.cuda.device_count() > 1:
+            print(f"Using {torch.cuda.device_count()} GPUs for training")
+            fold_model = torch.nn.DataParallel(fold_model)
+
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(fold_model.parameters(), lr=learning_rate)
 
-        train_subset = Subset(train_data, train_idx)
-        val_subset = Subset(train_data, val_idx)
-        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+        if num_workers == 0:
+            train_loader = DataLoader(train_idx, batch_size=batch_size, shuffle=True)
+            val_loader = DataLoader(val_idx, shuffle=False)
+        else:
+            train_loader = DataLoader(
+                train_idx, 
+                batch_size=batch_size, 
+                shuffle=True,
+                num_workers=num_workers,
+                pin_memory=True
+            )
+            val_loader = DataLoader(
+                val_idx, 
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=True
+            )
 
         best_val_accuracy = 0.0
         current_lr = learning_rate
@@ -453,7 +490,15 @@ def train_resnet18_with_CV(
     return "best_models/{model_name}_fold{fold+1}_best.pth"
 
 
-def test_resnet18(model_path, experiment_name, test_data, device, num_classes, positive_class: int = 1, save_result=False, verbose=False):
+def test_resnet18(model_path, 
+                  experiment_name, 
+                  test_data, 
+                  device, 
+                  num_classes, 
+                  positive_class: int = 1, 
+                  save_result=False, 
+                  verbose=False,
+                  ):
     """
     Loads a trained ResNet18 model from a .pth file and tests it on the test set.
     Additionally returns image-index lists for TP, FP, TN, FN (binary-class assumption).
