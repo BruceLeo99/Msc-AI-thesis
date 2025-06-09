@@ -1,0 +1,11 @@
+Supercategory Name,Category Name,Number of Training Images,Number of Validation Images
+animal,horse,269,15
+animal,cow,211,10
+animal,cat,387,22
+animal,giraffe,742,26
+animal,bear,557,24
+furniture,toilet,908,42
+food,pizza,299,16
+animal,dog,303,11
+animal,zebra,420,15
+animal,elephant,374,10

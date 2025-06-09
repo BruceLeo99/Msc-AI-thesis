@@ -3,6 +3,7 @@
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.init as init
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader
@@ -63,6 +64,7 @@ class ResNet18(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, num_classes)
 
+
     def _make_layer(self, block, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
@@ -95,10 +97,11 @@ def train_resnet18(
         num_epochs=10,
         learning_rate=0.0001,
         batch_size=32,
-        lr_increment_rate=0.0001,
+        lr_adjustment_rate=0.0001,
+        lr_adjustment_mode='increase',
         save_result=False,
         early_stopping_patience=10,
-        lr_increase_patience=5,
+        lr_adjustment_patience=5,
         num_workers=0
 ):
     """
@@ -114,10 +117,10 @@ def train_resnet18(
         num_epochs: The number of epochs to train for.
         learning_rate: The learning rate to use.
         batch_size: The batch size to use.
-        lr_increment_rate: The learning rate increment rate.
+        lr_adjustment_rate: The learning rate increment rate.
         save_result: Whether to save the results.
         early_stopping_patience: The early stopping patience.
-        lr_increase_patience: The learning rate increase patience.
+        lr_adjustment_patience: The learning rate increase patience.
         num_workers: Number of workers for DataLoader
 
     Returns the filepath of the best model saved on validation accuracy.
@@ -242,8 +245,11 @@ def train_resnet18(
         # Increase learning rate every 10 epochs 5 times in total. 
         # After 5 times, if the model still does not improve, stop training.
         if non_update_count >= early_stopping_patience:
-            if lr_increase_count < lr_increase_patience:
-                learning_rate += lr_increment_rate
+            if lr_increase_count < lr_adjustment_patience:
+                if lr_adjustment_mode == 'increase':
+                    learning_rate += lr_adjustment_rate
+                elif lr_adjustment_mode == 'decrease':
+                    learning_rate -= lr_adjustment_rate
                 current_lr = learning_rate
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = learning_rate
@@ -251,7 +257,7 @@ def train_resnet18(
                 non_update_count = 0
                 print(f"Learning rate increased to {learning_rate}")
             else:
-                print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
+                print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
                 break
 
         # Calculate time spent for one epoch and save the result
@@ -273,10 +279,11 @@ def train_resnet18_with_CV(
         model_name,
         device,
         batch_size,
-        lr_increment_rate=0.0001,
+        lr_adjustment_rate=0.0001,
+        lr_adjustment_mode='increase',
         save_result=False,
         early_stopping_patience=10,
-        lr_increase_patience=5,
+        lr_adjustment_patience=5,
         random_state=42,
         num_workers=0
 ):
@@ -294,9 +301,9 @@ def train_resnet18_with_CV(
         device: Device to use for training
         batch_size: Batch size for training
         save_result: Whether to save the result
-        lr_increment_rate: Learning rate increment rate
+        lr_adjustment_rate: Learning rate increment rate
         early_stopping_patience: Number of epochs to wait before early stopping
-        lr_increase_patience: Number of epochs to wait before increasing learning rate
+        lr_adjustment_patience: Number of epochs to wait before increasing learning rate
         random_state: Random state for cross-validation. For reproducibility, set 42 by default.
         num_workers: Number of workers for DataLoader
     """
@@ -449,8 +456,11 @@ def train_resnet18_with_CV(
                 print(f"Model performance did not improve for {non_update} times")
 
             if non_update >= early_stopping_patience:
-                if lr_inc_count < lr_increase_patience:
-                    learning_rate += lr_increment_rate
+                if lr_inc_count < lr_adjustment_patience:
+                    if lr_adjustment_mode == 'increase':
+                        learning_rate += lr_adjustment_rate
+                    elif lr_adjustment_mode == 'decrease':
+                        learning_rate -= lr_adjustment_rate
                     current_lr = learning_rate
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = learning_rate
@@ -458,7 +468,7 @@ def train_resnet18_with_CV(
                     non_update = 0
                     print(f"Learning rate increased to {learning_rate}")
                 else:
-                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
+                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
                     break
 
             # Calculate time spent for one epoch and save the result
@@ -494,7 +504,6 @@ def test_resnet18(model_path,
                   experiment_name, 
                   test_data, 
                   device, 
-                  num_classes, 
                   positive_class: int = 1, 
                   save_result=False, 
                   verbose=False,
@@ -518,8 +527,8 @@ def test_resnet18(model_path,
     if not os.path.exists(f"results/confusion_matrices"):
         os.makedirs(f"results/confusion_matrices")
 
-    model = ResNet18(num_classes=num_classes).to(device)
-    model.load_state_dict(torch.load(model_path))
+    model = ResNet18(num_classes=test_data.get_num_classes()).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
     test_loader = DataLoader(test_data, shuffle=False)
     model.eval()
 
@@ -610,7 +619,7 @@ def test_resnet18(model_path,
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    classi_report = classification_report(y_true, y_pred, target_names=list(idx_to_label.values()), output_dict=True)
+    classi_report = classification_report(y_true, y_pred, labels=list(idx_to_label.keys()), target_names=list(idx_to_label.values()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
 
     print("\nClassification Report:")
@@ -651,114 +660,114 @@ def test_resnet18(model_path,
 
     return test_result
         
-if __name__ == "__main__":
-    # Create results directory if it doesn't exist
-    if not os.path.exists('results'):
-        os.makedirs('results')
+# if __name__ == "__main__":
+#     # Create results directory if it doesn't exist
+#     if not os.path.exists('results'):
+#         os.makedirs('results')
     
-    # Memory optimization settings
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        # Enable memory efficient attention if available
-        torch.backends.cudnn.benchmark = True
-        # Set memory fraction to prevent over-allocation
-        torch.cuda.set_per_process_memory_fraction(0.9)
+#     # Memory optimization settings
+#     if torch.cuda.is_available():
+#         torch.cuda.empty_cache()
+#         # Enable memory efficient attention if available
+#         torch.backends.cudnn.benchmark = True
+#         # Set memory fraction to prevent over-allocation
+#         torch.cuda.set_per_process_memory_fraction(0.9)
     
-    num_epochs = 100
-    num_folds = 3
-    learning_rate = 0.0001
-    lr_increment_rate = 0.0001
-    batch_size = 4
-    validation_size = 0.15
-    prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
-    early_stopping_patience = 10
-    lr_increase_patience = 5
+#     num_epochs = 100
+#     num_folds = 3
+#     learning_rate = 0.0001
+#     lr_adjustment_rate = 0.0001
+#     batch_size = 4
+#     validation_size = 0.15
+#     prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
+#     early_stopping_patience = 10
+#     lr_adjustment_patience = 5
 
-    experiment_name1 = "resnet18_newdata-10classes-0.0001lr-testrun"
-    experiment_name2 = "resnet18_newdata-10classes-0.0001lr-CV-testrun"
+#     experiment_name1 = "resnet18_newdata-10classes-0.0001lr-testrun"
+#     experiment_name2 = "resnet18_newdata-10classes-0.0001lr-CV-testrun"
 
-    prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
+#     prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
 
-    classes = prechosen_categories_csv['Category Name'].tolist()
-    model_name1 = experiment_name1
-    model_name2 = experiment_name2
+#     classes = prechosen_categories_csv['Category Name'].tolist()
+#     model_name1 = experiment_name1
+#     model_name2 = experiment_name2
 
-    # Initialize model  
-    num_classes = len(classes)
-    model1 = ResNet18(num_classes=num_classes).to(device)
-    model2 = ResNet18(num_classes=num_classes).to(device)
-    # print(model)
+#     # Initialize model  
+#     num_classes = len(classes)
+#     model1 = ResNet18(num_classes=num_classes).to(device)
+#     model2 = ResNet18(num_classes=num_classes).to(device)
+#     # print(model)
 
-    ### Load data - manually
+#     ### Load data - manually
 
-    train_data, val_data = prepare_data_manually(*classes, 
-                                        num_instances=10, 
-                                        split=True, 
-                                        split_size=0.15,
-                                        transform="resnet18", 
-                                        target_transform="integer")
+#     train_data, val_data = prepare_data_manually(*classes, 
+#                                         num_instances=10, 
+#                                         split=True, 
+#                                         split_size=0.15,
+#                                         transform="resnet18", 
+#                                         target_transform="integer")
 
-    test_data = prepare_data_manually(*classes, 
-                                        num_instances=10, 
-                                        for_test=True,
-                                        transform="resnet18", 
-                                        target_transform="integer")
+#     test_data = prepare_data_manually(*classes, 
+#                                         num_instances=10, 
+#                                         for_test=True,
+#                                         transform="resnet18", 
+#                                         target_transform="integer")
     
-    ### Load data - pass the file path string, not the DataFrame
-    # train_data = prepare_data_from_preselected_categories(
-    #     prechosen_categories_csv_path, 
-    #     'train', 
-    #     split_val=False,
-    #     transform="resnet18",  # This will apply resnet18 transforms
-    #     target_transform="integer"  # This will convert labels to integers
-    # )
+#     ### Load data - pass the file path string, not the DataFrame
+#     # train_data = prepare_data_from_preselected_categories(
+#     #     prechosen_categories_csv_path, 
+#     #     'train', 
+#     #     split_val=False,
+#     #     transform="resnet18",  # This will apply resnet18 transforms
+#     #     target_transform="integer"  # This will convert labels to integers
+#     # )
 
-    # test_data = prepare_data_from_preselected_categories(
-    #     prechosen_categories_csv_path, 
-    #     'test',
-    #     transform="resnet18",  # This will apply resnet18 transforms
-    #     target_transform="integer"  # This will convert labels to integers
-    # )
-
-
-    # Clean data
-    train_data, val_data, test_data = eliminate_leaked_data(experiment_name1, train_data, val_data, test_data, verbose=True, save_result=True)
+#     # test_data = prepare_data_from_preselected_categories(
+#     #     prechosen_categories_csv_path, 
+#     #     'test',
+#     #     transform="resnet18",  # This will apply resnet18 transforms
+#     #     target_transform="integer"  # This will convert labels to integers
+#     # )
 
 
-    ### Train normally, without CV
-    best_model_path1 = train_resnet18(model1, 
-                                   train_data, 
-                                   val_data, 
-                                   model_name1, 
-                                   device, 
-                                   num_epochs=num_epochs, 
-                                   learning_rate=learning_rate,
-                                   lr_increment_rate=lr_increment_rate,
-                                   batch_size=batch_size, 
-                                   early_stopping_patience=early_stopping_patience,
-                                   lr_increase_patience=lr_increase_patience)
+#     # Clean data
+#     train_data, val_data, test_data = eliminate_leaked_data(experiment_name1, train_data, val_data, test_data, verbose=True, save_result=True)
+
+
+#     ### Train normally, without CV
+#     best_model_path1 = train_resnet18(model1, 
+#                                    train_data, 
+#                                    val_data, 
+#                                    model_name1, 
+#                                    device, 
+#                                    num_epochs=num_epochs, 
+#                                    learning_rate=learning_rate,
+#                                    lr_adjustment_rate=lr_adjustment_rate,
+#                                    batch_size=batch_size, 
+#                                    early_stopping_patience=early_stopping_patience,
+#                                    lr_adjustment_patience=lr_adjustment_patience)
     
-    test_resnet18(best_model_path1, 
-               experiment_name1, 
-               test_data, 
-               device, 
-               num_classes, 
-               save_result=True,
-               verbose=False)
+#     test_resnet18(best_model_path1, 
+#                experiment_name1, 
+#                test_data, 
+#                device, 
+#                num_classes, 
+#                save_result=True,
+#                verbose=False)
 
 
-    ### Train with CV
-    # best_model_path2 = train_resnet18_with_CV(model2, 
-    #                                        train_data, 
-    #                                        num_folds, 
-    #                                        num_epochs, 
-    #                                        learning_rate, 
-    #                                        model_name2, 
-    #                                        device, 
-    #                                        batch_size, 
-    #                                        lr_increment_rate=lr_increment_rate,
-    #                                        save_result=True,
-    #                                        early_stopping_patience=early_stopping_patience,
-    #                                        lr_increase_patience=lr_increase_patience)
+#     ### Train with CV
+#     # best_model_path2 = train_resnet18_with_CV(model2, 
+#     #                                        train_data, 
+#     #                                        num_folds, 
+#     #                                        num_epochs, 
+#     #                                        learning_rate, 
+#     #                                        model_name2, 
+#     #                                        device, 
+#     #                                        batch_size, 
+#     #                                        lr_adjustment_rate=lr_adjustment_rate,
+#     #                                        save_result=True,
+#     #                                        early_stopping_patience=early_stopping_patience,
+#     #                                        lr_adjustment_patience=lr_adjustment_patience)
     
-    # test_resnet18(best_model_path2, test_data, device, num_classes)
+#     # test_resnet18(best_model_path2, test_data, device, num_classes)

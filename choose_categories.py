@@ -19,21 +19,29 @@ import random
 def pick_one_random(category_names):
     return random.choice(category_names)
 
-def make_filtered_df(df):
+def make_filtered_df(df, include_person=False, min_train_count=100, min_val_count=0):
     """
     This function removes the categories that do not satisfy the following criteria:
     1. The category should have at least 900 images in the training set.
     2. The category should have at least 90 images in the validation set.
     3. The category should not be 'person', since the person category has too many images and too general.
     """
-    df_no_person = df[df['Category Name'] != 'person']
-    df_filtered = df_no_person[(df_no_person['Number of Training Images'] >= 900) & (df_no_person['Number of Validation Images'] >= 85)]
-    return df_filtered
+    if not include_person:
+        df_filtered = df[df['Category Name'] != 'person']
+    else:
+        df_filtered = df
 
-def choose_categories(num_supercategories, num_categories, save_to_csv=False, csv_name='chosen_categories.csv'):
+    df_final = df_filtered[(df_filtered['Number of Training Images'] >= min_train_count) & (df_filtered['Number of Validation Images'] >= min_val_count)]
+    return df_final
 
-    df = pd.read_csv('dataset_info.csv')
-    df_filtered = make_filtered_df(df)
+def choose_categories(num_supercategories, num_categories, singleLabel=False, min_train_count=100, min_val_count=0, save_to_csv=False, csv_name='chosen_categories.csv'):
+
+    if singleLabel:
+        df = pd.read_csv('dataset_infos/dataset_info_singleLabel.csv')
+    else:
+        df = pd.read_csv('dataset_infos/dataset_info.csv')
+
+    df_filtered = make_filtered_df(df, include_person=False, min_train_count=min_train_count, min_val_count=min_val_count)
     category_names = df_filtered['Category Name'].tolist()
     supercategory_names = list(set(df_filtered['Supercategory Name'].tolist()))
     available_supercategories = [supercategory for supercategory in supercategory_names if len(df_filtered[df_filtered['Supercategory Name'] == supercategory]) >= 2]
@@ -102,9 +110,42 @@ def choose_categories_manually(*category_names, save_to_csv=False, csv_name='cho
     return chosen_categories
 
 if __name__ == "__main__":
-    num_supercategories = 10
-    num_categories = 30
-    chosen_categories = choose_categories(num_supercategories, num_categories, save_to_csv=True, csv_name=f'chosen_categories_{num_supercategories}_{num_categories}.csv')
+    num_supercategories1 = 7
+    num_categories1 = 30
+
+    num_supercategories2 = 6
+    num_categories2 = 20
+
+    num_supercategories3 = 3
+    num_categories3 = 10
+
+    singleLabel = True
+    min_train_count = 100
+    min_val_count = 0
+    chosen_categories1 = choose_categories(num_supercategories1, 
+                                          num_categories1, 
+                                          singleLabel=singleLabel,
+                                          min_train_count=min_train_count, 
+                                          min_val_count=min_val_count, 
+                                          save_to_csv=True, 
+                                          csv_name=f'singleLabel_chosen_categories_{num_supercategories1}_{num_categories1}.csv')
+    
+    for i in range(3):
+        chosen_categories = choose_categories(num_supercategories2, 
+                                          num_categories2, 
+                                          singleLabel=singleLabel,
+                                          min_train_count=min_train_count, 
+                                          min_val_count=min_val_count, 
+                                          save_to_csv=True, 
+                                          csv_name=f'singleLabel_chosen_categories_{num_supercategories2}_{num_categories2}_v{i}.csv')
+        
+        chosen_categories = choose_categories(num_supercategories3, 
+                            num_categories3, 
+                            singleLabel=singleLabel,
+                            min_train_count=min_train_count, 
+                            min_val_count=min_val_count, 
+                            save_to_csv=True, 
+                            csv_name=f'singleLabel_chosen_categories_{num_supercategories3}_{num_categories3}_v{i}.csv')
 
     # df_no_person = df[df['Category Name'] != 'person']
     # print(df_no_person.head())

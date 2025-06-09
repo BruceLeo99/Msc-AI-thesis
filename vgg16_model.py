@@ -3,6 +3,7 @@
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.init as init
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -91,6 +92,7 @@ class VGG16(nn.Module):
             nn.ReLU())
         self.fc2= nn.Sequential(
             nn.Linear(4096, num_classes))
+
         
     def forward(self, x):
         out = self.layer1(x)
@@ -120,10 +122,11 @@ def train_vgg16(
         num_epochs = 10,
         learning_rate = 0.0001,
         batch_size = 32,
-        lr_increment_rate = 0.0001,
+        lr_adjustment_rate = 0.0001,
+        lr_adjustment_mode = 'decrease',
+        lr_adjustment_patience = 5,
         save_result = False,
         early_stopping_patience = 10,
-        lr_increase_patience = 5,
         num_workers = 0
 ):
     
@@ -140,10 +143,12 @@ def train_vgg16(
         num_epochs: Number of epochs to train
         learning_rate: Learning rate for training
         batch_size: Batch size for training
-        lr_increment_rate: Learning rate increment rate
+        lr_adjustment_rate: Learning rate increment rate
+        lr_adjustment_mode: Mode of learning rate adjustment
+        lr_adjustment_patience: Patience for learning rate increase
         save_result: Whether to save the result
-        early_stopping_patience: Number of epochs to wait before early stopping
-        lr_increase_patience: Number of epochs to wait before increasing learning rate
+        early_stopping_patience: Patience for early stopping
+        num_workers: Number of workers for data loading
     """
 
     if not os.path.exists(f"best_models"):
@@ -296,8 +301,11 @@ def train_vgg16(
             # Increase learning rate every 10 epochs 5 times in total. 
             # After 5 times, if the model still does not improve, stop training.
             if non_update_count >= early_stopping_patience:
-                if lr_increase_count < lr_increase_patience:
-                    learning_rate += lr_increment_rate
+                if lr_increase_count < lr_adjustment_patience:
+                    if lr_adjustment_mode == 'increase':
+                        learning_rate += lr_adjustment_rate
+                    elif lr_adjustment_mode == 'decrease':
+                        learning_rate -= lr_adjustment_rate
                     current_lr = learning_rate  # Update current learning rate
                     # Update optimizer learning rate
                     for param_group in optimizer.param_groups:
@@ -306,7 +314,7 @@ def train_vgg16(
                     non_update_count = 0
                     print(f"Learning rate increased to {learning_rate}")
                 else:
-                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_increase_patience} times")
+                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
                     break
 
         # Calculate time spent for one epoch and save the result
@@ -328,10 +336,11 @@ def train_vgg16_with_CV(
         model_name,
         device,
         batch_size,
-        lr_increment_rate = 0.0001,
+        lr_adjustment_rate = 0.0001,
+        lr_adjustment_mode = 'increase',
         save_result = False,
         early_stopping_patience = 10,
-        lr_increase_patience = 5,
+        lr_adjustment_patience = 5,
         random_state = 42,
         num_workers = 0
 ):
@@ -350,9 +359,9 @@ def train_vgg16_with_CV(
         device: Device to use for training
         batch_size: Batch size for training
         save_result: Whether to save the result
-        lr_increment_rate: Learning rate increment rate
+        lr_adjustment_rate: Learning rate increment rate
         early_stopping_patience: Number of epochs to wait before early stopping
-        lr_increase_patience: Number of epochs to wait before increasing learning rate
+        lr_adjustment_patience: Number of epochs to wait before increasing learning rate
         random_state: Random state for cross-validation. For reproducibility, set 42 by default.
         num_workers: Number of workers for data loading. For better GPU utilization, set 0 by default.
     """
@@ -526,8 +535,11 @@ def train_vgg16_with_CV(
 
             # Learning rate increment mechanism (SAME AS ORIGINAL)
             if non_update_count >= early_stopping_patience:
-                if lr_increase_count < lr_increase_patience:
-                    current_lr += lr_increment_rate
+                if lr_increase_count < lr_adjustment_patience:
+                    if lr_adjustment_mode == 'increase':
+                        current_lr += lr_adjustment_rate
+                    elif lr_adjustment_mode == 'decrease':
+                        current_lr -= lr_adjustment_rate
                     # Update optimizer learning rate
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = current_lr
@@ -609,7 +621,7 @@ def test_vgg16(model_path,
         os.makedirs(f"results/confusion_matrices")
 
     model = VGG16(num_classes=test_data.get_num_classes()).to(device)
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     test_loader = DataLoader(test_data, shuffle=False)
     model.eval()
 
@@ -700,7 +712,7 @@ def test_vgg16(model_path,
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    classi_report = classification_report(y_true, y_pred, target_names=list(idx_to_label.values()), output_dict=True)
+    classi_report = classification_report(y_true, y_pred, labels=list(idx_to_label.keys()), target_names=list(idx_to_label.values()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
 
     print("\nClassification Report:")
@@ -742,43 +754,76 @@ def test_vgg16(model_path,
 
     return test_result
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    # Create results directory if it doesn't exist
-    if not os.path.exists('results'):
-        os.makedirs('results')
+
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+#     test_data = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="dataset_infos/test_data_20classes.json")
+
+#     test_vgg16(
+#     model_path="results/best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
+#     experiment_name="vgg16_classification_report_debug1",
+#     test_data=test_data,
+#     device=device,
+#     save_result=True,
+#     verbose=True
+#     )
+
+#     test_vgg16(
+#     model_path="results/best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
+#     experiment_name="vgg16_classification_report_debug2",
+#     test_data=test_data,
+#     device=device,
+#     save_result=True,
+#     verbose=True
+#     )
+
+    # test_resnet18(
+    #     model_path="results/best_models/resnet18_baseline_20_categories_0.0001lr_best.pth",
+    #     experiment_name="resnet18_classification_report_debug",
+    #     test_data=test_data,
+    #     device=device,
+    #     save_result=True,
+    #     verbose=True
+    # )
+
+#     # Create results directory if it doesn't exist
+#     if not os.path.exists('results'):
+#         os.makedirs('results')
     
-    # Memory optimization settings
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        # Enable memory efficient attention if available
-        torch.backends.cudnn.benchmark = True
-        # Set memory fraction to prevent over-allocation
-        torch.cuda.set_per_process_memory_fraction(0.9)
+#     # Memory optimization settings
+#     if torch.cuda.is_available():
+#         torch.cuda.empty_cache()
+#         # Enable memory efficient attention if available
+#         torch.backends.cudnn.benchmark = True
+#         # Set memory fraction to prevent over-allocation
+#         torch.cuda.set_per_process_memory_fraction(0.9)
     
-    num_epochs = 2
-    num_folds = 3
-    learning_rate = 0.0001
-    lr_increment_rate = 0.0001
-    batch_size = 4
-    validation_size = 0.15
-    prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
-    early_stopping_patience = 10
-    lr_increase_patience = 5
+#     num_epochs = 2
+#     num_folds = 3
+#     learning_rate = 0.0001
+#     lr_adjustment_rate = 0.0001
+#     batch_size = 4
+#     validation_size = 0.15
+#     prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
+#     early_stopping_patience = 10
+#     lr_adjustment_patience = 5
 
-    experiment_name1 = "vgg16_newdata-10classes-0.0001lr-testrun"
-    experiment_name2 = "vgg16_newdata-10classes-0.0001lr-CV-testrun"
+#     experiment_name1 = "vgg16_newdata-10classes-0.0001lr-testrun"
+#     experiment_name2 = "vgg16_newdata-10classes-0.0001lr-CV-testrun"
 
-    prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
+#     prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
 
-    classes = prechosen_categories_csv['Category Name'].tolist()
-    model_name1 = experiment_name1
-    model_name2 = experiment_name2
+#     classes = prechosen_categories_csv['Category Name'].tolist()
+#     model_name1 = experiment_name1
+#     model_name2 = experiment_name2
 
     # Initialize model  
-    num_classes = len(classes)
-    model1 = VGG16(num_classes=num_classes).to(device)
-    model2 = VGG16(num_classes=num_classes).to(device)
+    # num_classes = len(classes)
+    # model1 = VGG16(num_classes=num_classes).to(device)
+    # model2 = VGG16(num_classes=num_classes).to(device)
     # print(model)
 
     ### Load data - manually
@@ -790,11 +835,11 @@ if __name__ == "__main__":
     #                                     transform="vgg16", 
     #                                     target_transform="integer")
 
-    test_data = prepare_data_manually(*classes, 
-                                        num_instances=10, 
-                                        for_test=True,
-                                        transform="vgg16", 
-                                        target_transform="integer")
+    # test_data = prepare_data_manually(*classes, 
+    #                                     num_instances=10, 
+    #                                     for_test=True,
+    #                                     transform="vgg16", 
+    #                                     target_transform="integer")
     
     ### Load data - pass the file path string, not the DataFrame
     # train_data = prepare_data_from_preselected_categories(
@@ -825,18 +870,18 @@ if __name__ == "__main__":
     #                                device, 
     #                                num_epochs=num_epochs, 
     #                                learning_rate=learning_rate,
-    #                                lr_increment_rate=lr_increment_rate,
+    #                                lr_adjustment_rate=lr_adjustment_rate,
     #                                batch_size=batch_size, 
     #                                early_stopping_patience=early_stopping_patience,
-    #                                lr_increase_patience=lr_increase_patience)
+    #                                lr_adjustment_patience=lr_adjustment_patience)
     
-    test_vgg16(f"best_models/vgg16_newdata-10classes-0.0001lr-testrun_best.pth", 
-               experiment_name1, 
-               test_data, 
-               device, 
-               num_classes, 
-               save_result=True,
-               verbose=True)
+    # test_vgg16(f"best_models/vgg16_newdata-10classes-0.0001lr-testrun_best.pth", 
+    #            experiment_name1, 
+    #            test_data, 
+    #            device, 
+    #            num_classes, 
+    #            save_result=True,
+    #            verbose=True)
 
 
     ### Train with CV
@@ -848,10 +893,10 @@ if __name__ == "__main__":
     #                                        model_name2, 
     #                                        device, 
     #                                        batch_size, 
-    #                                        lr_increment_rate=lr_increment_rate,
+    #                                        lr_adjustment_rate=lr_adjustment_rate,
     #                                        save_result=True,
     #                                        early_stopping_patience=early_stopping_patience,
-    #                                        lr_increase_patience=lr_increase_patience)
+    #                                        lr_adjustment_patience=lr_adjustment_patience)
     
     # test_vgg16(best_model_path2, test_data, device, num_classes)
 

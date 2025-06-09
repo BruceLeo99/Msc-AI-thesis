@@ -1,0 +1,21 @@
+Supercategory Name,Category Name,Number of Training Images,Number of Validation Images
+animal,dog,303,11
+animal,cow,211,10
+indoor,vase,365,18
+furniture,toilet,908,42
+animal,bird,765,31
+vehicle,motorcycle,192,7
+furniture,bed,291,10
+appliance,sink,196,9
+animal,horse,269,15
+outdoor,stop sign,521,22
+vehicle,bus,163,9
+animal,cat,387,22
+vehicle,airplane,1117,41
+animal,zebra,420,15
+indoor,clock,919,45
+animal,elephant,374,10
+animal,giraffe,742,26
+indoor,scissors,162,6
+appliance,refrigerator,110,4
+indoor,teddy bear,234,15

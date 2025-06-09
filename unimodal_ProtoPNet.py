@@ -38,16 +38,31 @@ def train_protopnet(
         num_epochs=50,
         learning_rate=0.0001,
         batch_size=32,
-        lr_increment_rate=0.0001,
+        lr_adjustment_rate=0.0001,
+        lr_adjustment_mode='decrease',
+        lr_adjustment_patience=5,
         save_result=False,
         early_stopping_patience=10,
-        lr_increase_patience=5,
         base_architecture='vgg16',
         class_specific=True,
         get_full_results=True,
         num_workers=0
 ):
     """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
+
+    Args:
+        train_data: Training data
+        val_data: Validation data
+        model_name: Name of the model
+        device: Device to use for training
+        num_prototypes: Number of prototypes
+        num_epochs: Number of epochs to train
+        learning_rate: Learning rate for training
+        batch_size: Batch size for training
+        lr_adjustment_rate: Learning rate increment rate
+        lr_adjustment_mode: Mode of learning rate adjustment
+        lr_adjustment_patience: Patience for learning rate increase
+        save_result: Whether to save the result
 
     Returns the path to the best model saved on validation accuracy.
     """
@@ -155,8 +170,11 @@ def train_protopnet(
             print(f"No improvement for {non_update} epochs")
 
         if non_update >= early_stopping_patience:
-            if lr_inc_count < lr_increase_patience:
-                current_lr += lr_increment_rate
+            if lr_inc_count < lr_adjustment_patience:
+                if lr_adjustment_mode == 'increase':
+                    current_lr += lr_adjustment_rate
+                elif lr_adjustment_mode == 'decrease':
+                    current_lr -= lr_adjustment_rate
                 learning_rate = current_lr
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = current_lr
@@ -312,8 +330,8 @@ def test_protopnet(model_path,
             'pred_label': test_pred
         }
 
-    class_report = classification_report(y_true, y_pred, output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(idx_to_label.values()))
+    class_report = classification_report(y_true, y_pred, labels=list(idx_to_label.keys()), target_names=list(idx_to_label.values()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(idx_to_label.keys()))
     print(classification_report(y_true, y_pred))
     print(conf_matrix)
 
@@ -371,10 +389,10 @@ def test_protopnet(model_path,
 #     num_epochs = 50
 #     learning_rate = 0.0001
 #     batch_size = 4
-#     lr_increment_rate = 0.0001
+#     lr_adjustment_rate = 0.0001
 #     save_result = True
 #     early_stopping_patience = 10
-#     lr_increase_patience = 5
+#     lr_adjustment_patience = 5
 #     experiment_name = 'ProtoPNet_testrun'
 
 #     # Define dataset parameters
@@ -415,10 +433,10 @@ def test_protopnet(model_path,
 #     #                                   num_epochs, 
 #     #                                   learning_rate, 
 #     #                                   batch_size, 
-#     #                                   lr_increment_rate, 
+#     #                                   lr_adjustment_rate, 
 #     #                                   save_result, 
 #     #                                   early_stopping_patience, 
-#     #                                   lr_increase_patience, 
+#     #                                   lr_adjustment_patience, 
 #     #                                   base_architecture, 
 #     #                                   prototype_shape, 
 #     #                                   class_specific, 

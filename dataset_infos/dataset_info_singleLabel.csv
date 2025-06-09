@@ -1,0 +1,81 @@
+Supercategory Name,Category Name,Category ID,Number of Training Images,Number of Validation Images,Train Validation Ratio
+person,person,1,208,13,0.058823529
+vehicle,bicycle,2,54,4,0.068965517
+vehicle,car,3,42,4,0.086956522
+vehicle,motorcycle,4,192,7,0.035175879
+vehicle,airplane,5,1117,41,0.035405872
+vehicle,bus,6,163,9,0.052325581
+vehicle,train,7,1055,41,0.037408759
+vehicle,truck,8,245,7,0.027777778
+vehicle,boat,9,159,8,0.047904192
+outdoor,traffic light,10,203,11,0.051401869
+outdoor,fire hydrant,11,475,16,0.032586558
+outdoor,stop sign,13,521,22,0.040515654
+outdoor,parking meter,14,53,4,0.070175439
+outdoor,bench,15,368,12,0.031578947
+animal,bird,16,765,31,0.038944724
+animal,cat,17,387,22,0.053789731
+animal,dog,18,303,11,0.035031847
+animal,horse,19,269,15,0.052816901
+animal,sheep,20,98,6,0.057692308
+animal,cow,21,211,10,0.045248869
+animal,elephant,22,374,10,0.026041667
+animal,bear,23,557,24,0.04130809
+animal,zebra,24,420,15,0.034482759
+animal,giraffe,25,742,26,0.033854167
+accessory,backpack,27,1,0,0
+accessory,umbrella,28,56,1,0.01754386
+accessory,handbag,31,3,0,0
+accessory,tie,32,19,1,0.05
+accessory,suitcase,33,89,3,0.032608696
+sports,frisbee,34,15,0,0
+sports,skis,35,10,0,0
+sports,snowboard,36,9,1,0.1
+sports,sports ball,37,4,0,0
+sports,kite,38,49,4,0.075471698
+sports,baseball bat,39,6,0,0
+sports,baseball glove,40,0,1,1
+sports,skateboard,41,24,2,0.076923077
+sports,surfboard,42,23,1,0.041666667
+sports,tennis racket,43,4,0,0
+kitchen,bottle,44,19,0,0
+kitchen,wine glass,46,6,0,0
+kitchen,cup,47,9,1,0.1
+kitchen,fork,48,3,1,0.25
+kitchen,knife,49,18,0,0
+kitchen,spoon,50,7,1,0.125
+kitchen,bowl,51,13,0,0
+food,banana,52,116,7,0.056910569
+food,apple,53,14,0,0
+food,sandwich,54,82,2,0.023809524
+food,orange,55,46,2,0.041666667
+food,broccoli,56,118,6,0.048387097
+food,carrot,57,10,0,0
+food,hot dog,58,60,1,0.016393443
+food,pizza,59,299,16,0.050793651
+food,donut,60,30,3,0.090909091
+food,cake,61,109,5,0.043859649
+furniture,chair,62,11,2,0.153846154
+furniture,couch,63,11,0,0
+furniture,potted plant,64,18,0,0
+furniture,bed,65,291,10,0.033222591
+furniture,dining table,67,19,1,0.05
+furniture,toilet,70,908,42,0.044210526
+electronic,tv,72,44,0,0
+electronic,laptop,73,26,1,0.037037037
+electronic,mouse,74,7,0,0
+electronic,remote,75,29,0,0
+electronic,keyboard,76,31,0,0
+electronic,cell phone,77,68,4,0.055555556
+appliance,microwave,78,47,3,0.06
+appliance,oven,79,111,2,0.017699115
+appliance,toaster,80,7,1,0.125
+appliance,sink,81,196,9,0.043902439
+appliance,refrigerator,82,110,4,0.035087719
+indoor,book,84,4,0,0
+indoor,clock,85,919,45,0.046680498
+indoor,vase,86,365,18,0.046997389
+indoor,scissors,87,162,6,0.035714286
+indoor,teddy bear,88,234,15,0.060240964
+indoor,hair drier,89,3,1,0.25
+indoor,toothbrush,90,20,1,0.047619048

@@ -87,10 +87,10 @@ num_gpus = torch.cuda.device_count()
 batch_size = base_batch_size * max(1, num_gpus)  # Scale batch size with GPU count
 print(f"Using batch size {batch_size} with {num_gpus} GPUs")
 learning_rate = 0.0001
-lr_increment_rate = 0.0001
+lr_adjustment_rate = 0.0001
 num_folds = 2
 early_stopping_patience = 2
-lr_increase_patience = 2
+lr_adjustment_patience = 2
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -107,10 +107,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #     num_epochs=num_epochs,
 #     learning_rate=learning_rate,
 #     batch_size=batch_size,
-#     lr_increment_rate=lr_increment_rate,
+#     lr_adjustment_rate=lr_adjustment_rate,
 #     save_result=True,
 #     early_stopping_patience=early_stopping_patience,
-#     lr_increase_patience=lr_increase_patience,
+#     lr_adjustment_patience=lr_adjustment_patience,
 #     num_workers=4
 # )
 
@@ -134,10 +134,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #     num_epochs=num_epochs,
 #     learning_rate=learning_rate,
 #     batch_size=batch_size,
-#     lr_increment_rate=lr_increment_rate,
+#     lr_adjustment_rate=lr_adjustment_rate,
 #     save_result=True,
 #     early_stopping_patience=early_stopping_patience,
-#     lr_increase_patience=lr_increase_patience,
+#     lr_adjustment_patience=lr_adjustment_patience,
 #     num_workers=4
 # )
 
@@ -160,10 +160,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #     num_epochs=num_epochs,
 #     learning_rate=learning_rate,
 #     batch_size=batch_size,
-#     lr_increment_rate=lr_increment_rate,
+#     lr_adjustment_rate=lr_adjustment_rate,
 #     save_result=True,
 #     early_stopping_patience=early_stopping_patience,
-#     lr_increase_patience=lr_increase_patience,
+#     lr_adjustment_patience=lr_adjustment_patience,
 #     class_specific=True,
 #     num_workers=4
 # )
@@ -186,10 +186,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #     num_epochs=num_epochs,
 #     learning_rate=learning_rate,
 #     batch_size=batch_size,
-#     lr_increment_rate=lr_increment_rate,
+#     lr_adjustment_rate=lr_adjustment_rate,
 #     save_result=True,
 #     early_stopping_patience=early_stopping_patience,
-#     lr_increase_patience=lr_increase_patience,
+#     lr_adjustment_patience=lr_adjustment_patience,
 #     class_specific=True,
 #     num_workers=4
 # )
@@ -212,10 +212,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #     num_epochs=num_epochs,
 #     learning_rate=learning_rate,
 #     batch_size=batch_size,
-#     lr_increment_rate=lr_increment_rate,
+#     lr_adjustment_rate=lr_adjustment_rate,
 #     save_result=True,
 #     early_stopping_patience=early_stopping_patience,
-#     lr_increase_patience=lr_increase_patience,
+#     lr_adjustment_patience=lr_adjustment_patience,
 #     class_specific=True,
 #     num_workers=4
 # )
@@ -239,10 +239,10 @@ best_resnet18_protopnet_path_20classes = train_protopnet(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     class_specific=True,
     num_workers=4
 )

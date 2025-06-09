@@ -74,10 +74,10 @@ print("Data preparation complete")
 num_epochs = 120
 batch_size = 64
 learning_rate = 0.0001
-lr_increment_rate = 0.0001
+lr_adjustment_rate = 0.0001
 num_folds = 5
 early_stopping_patience = 10
-lr_increase_patience = 5
+lr_adjustment_patience = 5
 num_gpus = torch.cuda.device_count()
 
 print(f"Using batch size {batch_size} with {num_gpus} GPUs")
@@ -98,10 +98,10 @@ best_vgg16_baseline_path = train_vgg16(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     num_workers=4
 )
 
@@ -125,10 +125,10 @@ best_resnet18_baseline_path = train_resnet18(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     num_workers=4
 )
 
@@ -150,10 +150,10 @@ best_vgg16_protopnet_path_10classes = train_protopnet(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     class_specific=True,
     num_workers=4
 )
@@ -178,10 +178,10 @@ best_resnet18_protopnet_path_10classes = train_protopnet(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     class_specific=True,
     num_workers=4
 )
@@ -206,10 +206,10 @@ best_vgg16_protopnet_path_20classes = train_protopnet(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     class_specific=True,
     num_workers=4
 )
@@ -234,10 +234,10 @@ best_resnet18_protopnet_path_20classes = train_protopnet(
     num_epochs=num_epochs,
     learning_rate=learning_rate,
     batch_size=batch_size,
-    lr_increment_rate=lr_increment_rate,
+    lr_adjustment_rate=lr_adjustment_rate,
     save_result=True,
     early_stopping_patience=early_stopping_patience,
-    lr_increase_patience=lr_increase_patience,
+    lr_adjustment_patience=lr_adjustment_patience,
     class_specific=True,
     num_workers=4
 )
