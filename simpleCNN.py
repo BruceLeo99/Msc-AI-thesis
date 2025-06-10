@@ -315,7 +315,6 @@ def test_simpleCNN(model_path,
         model_path: Path to saved model
         test_data: Dataset to evaluate
         device: torch device
-        num_classes: total number of classes in the model
         positive_class: which class id is treated as the "positive" class for TP/FP definitions
     Returns
         test_accuracy, dict with keys 'tp','fp','tn','fn' mapping to lists of sample indices
@@ -327,8 +326,18 @@ def test_simpleCNN(model_path,
     if not os.path.exists(f"results/confusion_matrices"):
         os.makedirs(f"results/confusion_matrices")
 
-    model = SimpleCNN(num_classes=test_data.get_num_classes()).to(device)
-    model.load_state_dict(torch.load(model_path))
+    # Load state dict to analyze architecture
+    state_dict = torch.load(model_path)
+    
+    # Count number of convolutional layers by looking at conv_layers keys
+    num_conv_layers = max([int(key.split('.')[1]) for key in state_dict.keys() if key.startswith('conv_layers')]) + 1
+    
+    if verbose:
+        print(f"Detected {num_conv_layers} convolutional layers in saved model")
+
+    # Create model with detected architecture
+    model = SimpleCNN(num_classes=test_data.get_num_classes(), num_conv_layers=num_conv_layers).to(device)
+    model.load_state_dict(state_dict)
     test_loader = DataLoader(test_data, shuffle=False)
     model.eval()
 

@@ -102,7 +102,7 @@ def train_resnet18(
         save_result=False,
         early_stopping_patience=10,
         lr_adjustment_patience=5,
-        num_workers=0
+        num_workers=4
 ):
     """
     Train ResNet18 on provided train/val splits (no cross-validation).
@@ -285,7 +285,7 @@ def train_resnet18_with_CV(
         early_stopping_patience=10,
         lr_adjustment_patience=5,
         random_state=42,
-        num_workers=0
+        num_workers=4
 ):
     """
     Trains a ResNet18 model with K-Fold Cross-Validation on the training set and validates it on the validation set.
@@ -619,8 +619,11 @@ def test_resnet18(model_path,
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    classi_report = classification_report(y_true, y_pred, labels=list(idx_to_label.keys()), target_names=list(idx_to_label.values()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred)
+    # Get unique labels in the correct order
+    unique_labels = list(idx_to_label.values())
+    
+    classi_report = classification_report(y_true, y_pred, labels=unique_labels, output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_labels)
 
     print("\nClassification Report:")
     print(classi_report)

@@ -46,7 +46,7 @@ def train_protopnet(
         base_architecture='vgg16',
         class_specific=True,
         get_full_results=True,
-        num_workers=0
+        num_workers=4
 ):
     """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
 
@@ -256,7 +256,9 @@ def test_protopnet(model_path,
     total_avg_separation_cost = 0
 
 
-    y_true, y_pred, y_img_ids = [], [], []
+    y_true = []
+    y_pred = []
+    y_img_ids = []
     confusion_mapping = {}
 
     for i, (image, label) in enumerate(test_loader):
@@ -307,9 +309,13 @@ def test_protopnet(model_path,
             _, predicted = torch.max(output.data, 1)
             n_examples += target.size(0)
             n_correct += (predicted == target).sum().item()
-            y_true.append(idx_to_label[target.item()])
-            y_pred.append(idx_to_label[predicted.item()])
+            
+            # Store the raw integer labels for confusion matrix
+            y_true.append(target.item())
+            y_pred.append(predicted.item())
             y_img_ids.append(test_data.get_image_id(i))
+            
+            # Store mapping for confusion matrix visualization
             key = f"{target.item()}_{predicted.item()}"
             confusion_mapping.setdefault(key, []).append(test_data.get_image_id(i))
 
@@ -322,18 +328,30 @@ def test_protopnet(model_path,
         del input, target, output, predicted, min_distances
 
 
+    # Convert labels to class names for individual results
     individual_prediction_results = dict()
-
     for test_image_id, test_label, test_pred in zip(y_img_ids, y_true, y_pred):
         individual_prediction_results[test_image_id] = {
-            'true_label': test_label,
-            'pred_label': test_pred
+            'true_label': idx_to_label[test_label],
+            'pred_label': idx_to_label[test_pred]
         }
 
-    class_report = classification_report(y_true, y_pred, labels=list(idx_to_label.keys()), target_names=list(idx_to_label.values()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(idx_to_label.keys()))
-    print(classification_report(y_true, y_pred))
-    print(conf_matrix)
+    # Get unique labels in sorted order for consistent matrix
+    unique_labels = sorted(list(set(y_true + y_pred)))
+    label_names = [idx_to_label[idx] for idx in unique_labels]
+
+    # Generate classification report and confusion matrix using integer labels
+    class_report = classification_report(y_true, y_pred, 
+                                      labels=unique_labels,
+                                      target_names=label_names, 
+                                      output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_labels)
+    
+    if verbose:
+        print("\nClassification Report:")
+        print(classification_report(y_true, y_pred, labels=unique_labels, target_names=label_names))
+        print("\nConfusion Matrix:")
+        print(conf_matrix)
 
     test_accuracy = 100 * n_correct / n_examples
     test_loss = total_cross_entropy / n_batches

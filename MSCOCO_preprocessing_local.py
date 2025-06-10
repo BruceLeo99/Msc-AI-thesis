@@ -516,449 +516,459 @@ def prepare_data_from_preselected_categories(selection_csv, data_type, load_from
                                     target_transform=target_transform, 
                                     load_captions=load_captions)
         return test_data
-
-def data_summary(experiment_name, train_data, val_data, test_data, num_examples=0, verbose=False, save_result=False):
-    """
-    Summarizes the data by printing the number of images in each category.
-    """
-
-    df_dataset_info = pd.read_csv('dataset_infos/dataset_info.csv')
-    category_names = list(set([data['category'] for data in train_data.data]))
-    supercategory_names = [category_supercategory_map[category] for category in category_names] 
     
-    # Counts the number of images per category in per set
-    num_imgs_per_set = {
-        'train': Counter([data['category'] for data in train_data.data]),
-        'val': Counter([data['category'] for data in val_data.data]),
-        'test': Counter([data['category'] for data in test_data.data])
-    }
-
-    dataset_stats = pd.DataFrame({
-        'Supercategory Name': supercategory_names,
-        'Category Name': category_names,
-        'Number of Training Images': [num_imgs_per_set['train'][category] for category in category_names],
-        'Number of Validation Images': [num_imgs_per_set['val'][category] for category in category_names],
-        'Number of Test Images': [num_imgs_per_set['test'][category] for category in category_names],
-        'Total': [sum([num_imgs_per_set['train'][category], num_imgs_per_set['val'][category], num_imgs_per_set['test'][category]]) for category in category_names]
-    })
-
-    if save_result:
-        print("Saving dataset stats...")
-        dataset_stats.to_csv(f'dataset_stats_{experiment_name}.csv', index=False)
-
-    if verbose:
-        print(dataset_stats)
-
-    return dataset_stats
-
+##########################
+# FIX THESE FUNCTIONS LATER. ISSUES OCCURRED. SO FAR CLEAN THE DATA MANUALLY.
+##########################
+    
 def check_data_leakage(train_data, val_data, test_data, verbose=True, save_result=False):
-    """
-    Check for data leakage between train, validation, and test datasets.
+    pass
+
+def eliminate_leaked_data(train_data, val_data, test_data, verbose=False, save_result=False):
+    pass
+
+# def data_summary(experiment_name, train_data, val_data, test_data, num_examples=0, verbose=False, save_result=False):
+#     """
+#     Summarizes the data by printing the number of images in each category.
+#     """
+
+#     df_dataset_info = pd.read_csv('dataset_infos/dataset_info.csv')
+#     category_names = list(set([data['category'] for data in train_data.data]))
+#     supercategory_names = [category_supercategory_map[category] for category in category_names] 
     
-    Data leakage occurs when the same image appears in multiple splits,
-    which can lead to overly optimistic performance estimates.
+#     # Counts the number of images per category in per set
+#     num_imgs_per_set = {
+#         'train': Counter([data['category'] for data in train_data.data]),
+#         'val': Counter([data['category'] for data in val_data.data]),
+#         'test': Counter([data['category'] for data in test_data.data])
+#     }
+
+#     dataset_stats = pd.DataFrame({
+#         'Supercategory Name': supercategory_names,
+#         'Category Name': category_names,
+#         'Number of Training Images': [num_imgs_per_set['train'][category] for category in category_names],
+#         'Number of Validation Images': [num_imgs_per_set['val'][category] for category in category_names],
+#         'Number of Test Images': [num_imgs_per_set['test'][category] for category in category_names],
+#         'Total': [sum([num_imgs_per_set['train'][category], num_imgs_per_set['val'][category], num_imgs_per_set['test'][category]]) for category in category_names]
+#     })
+
+#     if save_result:
+#         print("Saving dataset stats...")
+#         dataset_stats.to_csv(f'dataset_stats_{experiment_name}.csv', index=False)
+
+#     if verbose:
+#         print(dataset_stats)
+
+#     return dataset_stats
+
+# def check_data_leakage(train_data, val_data, test_data, verbose=True, save_result=False):
+#     """
+#     Check for data leakage between train, validation, and test datasets.
     
-    Args:
-        train_data: Training dataset (MSCOCOCustomDataset)
-        val_data: Validation dataset (MSCOCOCustomDataset) 
-        test_data: Test dataset (MSCOCOCustomDataset)
-        verbose: Whether to print detailed information
-        save_result: Whether to save the result
-    Returns:
-        dict: Summary of leakage detection results
-    """
+#     Data leakage occurs when the same image appears in multiple splits,
+#     which can lead to overly optimistic performance estimates.
     
-    # Extract image IDs from each dataset
-    train_ids = set(train_data.img_ids)
-    val_ids = set(val_data.img_ids) if val_data is not None else set()
-    test_ids = set(test_data.img_ids)
+#     Args:
+#         train_data: Training dataset (MSCOCOCustomDataset)
+#         val_data: Validation dataset (MSCOCOCustomDataset) 
+#         test_data: Test dataset (MSCOCOCustomDataset)
+#         verbose: Whether to print detailed information
+#         save_result: Whether to save the result
+#     Returns:
+#         dict: Summary of leakage detection results
+#     """
     
-    # Check for overlaps
-    train_val_overlap = train_ids.intersection(val_ids)
-    train_test_overlap = train_ids.intersection(test_ids)
-    val_test_overlap = val_ids.intersection(test_ids)
+#     # Extract image IDs from each dataset
+#     train_ids = set(train_data.img_ids)
+#     val_ids = set(val_data.img_ids) if val_data is not None else set()
+#     test_ids = set(test_data.img_ids)
     
-    # Check for any overlap across all three sets
-    all_overlap = train_ids.intersection(val_ids).intersection(test_ids)
+#     # Check for overlaps
+#     train_val_overlap = train_ids.intersection(val_ids)
+#     train_test_overlap = train_ids.intersection(test_ids)
+#     val_test_overlap = val_ids.intersection(test_ids)
     
-    # Calculate statistics
-    total_unique_images = len(train_ids.union(val_ids).union(test_ids))
-    expected_total = len(train_ids) + len(val_ids) + len(test_ids)
+#     # Check for any overlap across all three sets
+#     all_overlap = train_ids.intersection(val_ids).intersection(test_ids)
     
-    leakage_results = {
-        'train_size': len(train_ids),
-        'val_size': len(val_ids),
-        'test_size': len(test_ids),
-        'train_val_overlap': len(train_val_overlap),
-        'train_test_overlap': len(train_test_overlap),
-        'val_test_overlap': len(val_test_overlap),
-        'all_three_overlap': len(all_overlap),
-        'total_unique_images': total_unique_images,
-        'expected_total': expected_total,
-        'has_leakage': len(train_val_overlap) > 0 or len(train_test_overlap) > 0 or len(val_test_overlap) > 0,
-        'train_val_overlap_ids': list(train_val_overlap),
-        'train_test_overlap_ids': list(train_test_overlap),
-        'val_test_overlap_ids': list(val_test_overlap),
-        'all_three_overlap_ids': list(all_overlap)
-    }
+#     # Calculate statistics
+#     total_unique_images = len(train_ids.union(val_ids).union(test_ids))
+#     expected_total = len(train_ids) + len(val_ids) + len(test_ids)
     
-    if verbose:
-        print("="*60)
-        print("DATA LEAKAGE DETECTION REPORT")
-        print("="*60)
+#     leakage_results = {
+#         'train_size': len(train_ids),
+#         'val_size': len(val_ids),
+#         'test_size': len(test_ids),
+#         'train_val_overlap': len(train_val_overlap),
+#         'train_test_overlap': len(train_test_overlap),
+#         'val_test_overlap': len(val_test_overlap),
+#         'all_three_overlap': len(all_overlap),
+#         'total_unique_images': total_unique_images,
+#         'expected_total': expected_total,
+#         'has_leakage': len(train_val_overlap) > 0 or len(train_test_overlap) > 0 or len(val_test_overlap) > 0,
+#         'train_val_overlap_ids': list(train_val_overlap),
+#         'train_test_overlap_ids': list(train_test_overlap),
+#         'val_test_overlap_ids': list(val_test_overlap),
+#         'all_three_overlap_ids': list(all_overlap)
+#     }
+    
+#     if verbose:
+#         print("="*60)
+#         print("DATA LEAKAGE DETECTION REPORT")
+#         print("="*60)
         
-        print(f"\nDataset Sizes:")
-        print(f"Training:   {len(train_ids):,} images")
-        print(f"Validation: {len(val_ids):,} images")
-        print(f"Test:       {len(test_ids):,} images")
-        print(f"Expected Total: {expected_total:,} images")
-        print(f"Actual Unique:  {total_unique_images:,} images")
+#         print(f"\nDataset Sizes:")
+#         print(f"Training:   {len(train_ids):,} images")
+#         print(f"Validation: {len(val_ids):,} images")
+#         print(f"Test:       {len(test_ids):,} images")
+#         print(f"Expected Total: {expected_total:,} images")
+#         print(f"Actual Unique:  {total_unique_images:,} images")
         
-        print(f"\nOverlap Analysis:")
-        print(f"Train ∩ Validation: {len(train_val_overlap):,} images")
-        print(f"Train ∩ Test:       {len(train_test_overlap):,} images")
-        print(f"Validation ∩ Test:  {len(val_test_overlap):,} images")
-        print(f"All Three Sets:     {len(all_overlap):,} images")
+#         print(f"\nOverlap Analysis:")
+#         print(f"Train ∩ Validation: {len(train_val_overlap):,} images")
+#         print(f"Train ∩ Test:       {len(train_test_overlap):,} images")
+#         print(f"Validation ∩ Test:  {len(val_test_overlap):,} images")
+#         print(f"All Three Sets:     {len(all_overlap):,} images")
         
-        # Calculate leakage percentages
-        if len(val_ids) > 0:
-            train_val_pct = (len(train_val_overlap) / len(val_ids)) * 100
-            print(f"  Train→Val Leakage:  {train_val_pct:.2f}% of validation data")
+#         # Calculate leakage percentages
+#         if len(val_ids) > 0:
+#             train_val_pct = (len(train_val_overlap) / len(val_ids)) * 100
+#             print(f"  Train→Val Leakage:  {train_val_pct:.2f}% of validation data")
         
-        test_train_pct = (len(train_test_overlap) / len(test_ids)) * 100
-        print(f"  Train→Test Leakage: {test_train_pct:.2f}% of test data")
+#         test_train_pct = (len(train_test_overlap) / len(test_ids)) * 100
+#         print(f"  Train→Test Leakage: {test_train_pct:.2f}% of test data")
         
-        if len(val_ids) > 0:
-            test_val_pct = (len(val_test_overlap) / len(test_ids)) * 100
-            print(f"  Val→Test Leakage:   {test_val_pct:.2f}% of test data")
+#         if len(val_ids) > 0:
+#             test_val_pct = (len(val_test_overlap) / len(test_ids)) * 100
+#             print(f"  Val→Test Leakage:   {test_val_pct:.2f}% of test data")
         
-        # Overall assessment
-        print(f"\nOverall Assessment:")
-        if leakage_results['has_leakage']:
-            print("DATA LEAKAGE DETECTED!")
-            print("This may lead to overly optimistic performance estimates.")
-            print("Consider using different data splits or removing duplicates.")
-        else:
-            print("NO DATA LEAKAGE DETECTED")
-            print("All splits are properly separated.")
+#         # Overall assessment
+#         print(f"\nOverall Assessment:")
+#         if leakage_results['has_leakage']:
+#             print("DATA LEAKAGE DETECTED!")
+#             print("This may lead to overly optimistic performance estimates.")
+#             print("Consider using different data splits or removing duplicates.")
+#         else:
+#             print("NO DATA LEAKAGE DETECTED")
+#             print("All splits are properly separated.")
         
-        # Show some example overlapping IDs if they exist
-        if len(train_val_overlap) > 0:
-            print(f"\nExample Train-Val Overlap IDs (showing first 5):")
-            for img_id in list(train_val_overlap)[:5]:
-                print(f"Image ID: {img_id}")
+#         # Show some example overlapping IDs if they exist
+#         if len(train_val_overlap) > 0:
+#             print(f"\nExample Train-Val Overlap IDs (showing first 5):")
+#             for img_id in list(train_val_overlap)[:5]:
+#                 print(f"Image ID: {img_id}")
         
-        if len(train_test_overlap) > 0:
-            print(f"\nExample Train-Test Overlap IDs (showing first 5):")
-            for img_id in list(train_test_overlap)[:5]:
-                print(f"Image ID: {img_id}")
+#         if len(train_test_overlap) > 0:
+#             print(f"\nExample Train-Test Overlap IDs (showing first 5):")
+#             for img_id in list(train_test_overlap)[:5]:
+#                 print(f"Image ID: {img_id}")
                 
-        if len(val_test_overlap) > 0:
-            print(f"\nExample Val-Test Overlap IDs (showing first 5):")
-            for img_id in list(val_test_overlap)[:5]:
-                print(f"Image ID: {img_id}")
+#         if len(val_test_overlap) > 0:
+#             print(f"\nExample Val-Test Overlap IDs (showing first 5):")
+#             for img_id in list(val_test_overlap)[:5]:
+#                 print(f"Image ID: {img_id}")
         
-        print("="*60)
+#         print("="*60)
     
-    return leakage_results
+#     return leakage_results
 
-def eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False):
-    """
-    Eliminate data that is present in multiple datasets.
-    """
-    leakage_results = check_data_leakage(train_data, val_data, test_data, verbose=verbose)
+# def eliminate_leaked_data(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False):
+#     """
+#     Eliminate data that is present in multiple datasets.
+#     """
+#     leakage_results = check_data_leakage(train_data, val_data, test_data, verbose=verbose)
 
-    # If there is no leakage at all, then return the original datasets
-    if not leakage_results['has_leakage']:
-        return train_data, val_data, test_data
+#     # If there is no leakage at all, then return the original datasets
+#     if not leakage_results['has_leakage']:
+#         return train_data, val_data, test_data
     
 
-    num_leaked_train_val = len(leakage_results['train_val_overlap_ids'])
-    num_leaked_train_test = len(leakage_results['train_test_overlap_ids'])
-    num_leaked_val_test = len(leakage_results['val_test_overlap_ids'])
+#     num_leaked_train_val = len(leakage_results['train_val_overlap_ids'])
+#     num_leaked_train_test = len(leakage_results['train_test_overlap_ids'])
+#     num_leaked_val_test = len(leakage_results['val_test_overlap_ids'])
 
-    total_leaked_images = num_leaked_train_val + num_leaked_train_test + num_leaked_val_test
+#     total_leaked_images = num_leaked_train_val + num_leaked_train_test + num_leaked_val_test
 
-    if verbose:
-        print("Data summary before elimination:")
+#     if verbose:
+#         print("Data summary before elimination:")
 
-    data_stats_before_elimination = data_summary(experiment_name, train_data, val_data, test_data, verbose=verbose, save_result=save_result)
+#     data_stats_before_elimination = data_summary(experiment_name, train_data, val_data, test_data, verbose=verbose, save_result=save_result)
 
-    if leakage_results['has_leakage']:
-        print("Eliminating leaked train and val data from training set...")
-        leaked_datapoints = [datapoint for datapoint in train_data.data if datapoint['img_id'] in leakage_results['train_val_overlap_ids']]
-        for datapoint in leaked_datapoints:
-            train_data.data.remove(datapoint)
+#     if leakage_results['has_leakage']:
+#         print("Eliminating leaked train and val data from training set...")
+#         leaked_datapoints = [datapoint for datapoint in train_data.data if datapoint['img_id'] in leakage_results['train_val_overlap_ids']]
+#         for datapoint in leaked_datapoints:
+#             train_data.data.remove(datapoint)
 
-    if leakage_results['has_leakage']:
-        print("Eliminating leaked train and test data from training set...")
-        leaked_datapoints = [datapoint for datapoint in train_data.data if datapoint['img_id'] in leakage_results['train_test_overlap_ids']]
-        for datapoint in leaked_datapoints:
-            train_data.data.remove(datapoint)
+#     if leakage_results['has_leakage']:
+#         print("Eliminating leaked train and test data from training set...")
+#         leaked_datapoints = [datapoint for datapoint in train_data.data if datapoint['img_id'] in leakage_results['train_test_overlap_ids']]
+#         for datapoint in leaked_datapoints:
+#             train_data.data.remove(datapoint)
 
-    if leakage_results['has_leakage']:
-        print("Eliminating leaked val and test data from validation set...")
-        leaked_datapoints = [datapoint for datapoint in val_data.data if datapoint['img_id'] in leakage_results['val_test_overlap_ids']]
-        for datapoint in leaked_datapoints:
-            val_data.data.remove(datapoint)
+#     if leakage_results['has_leakage']:
+#         print("Eliminating leaked val and test data from validation set...")
+#         leaked_datapoints = [datapoint for datapoint in val_data.data if datapoint['img_id'] in leakage_results['val_test_overlap_ids']]
+#         for datapoint in leaked_datapoints:
+#             val_data.data.remove(datapoint)
 
-    data_stats_after_elimination = data_summary(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False)
+#     data_stats_after_elimination = data_summary(experiment_name, train_data, val_data, test_data, verbose=False, save_result=False)
 
-    data_stats_complete = pd.DataFrame({
-        'Supercategory Name': data_stats_before_elimination['Supercategory Name'],
-        'Category Name': data_stats_before_elimination['Category Name'],
-        'Number of Training Images Before': data_stats_before_elimination['Number of Training Images'],
-        'Number of Validation Images Before': data_stats_before_elimination['Number of Validation Images'],
-        'Number of Test Images Before': data_stats_before_elimination['Number of Test Images'],
-        'Total Before': data_stats_before_elimination['Total'],
-        'Number of Training Images After': data_stats_after_elimination['Number of Training Images'],
-        'Number of Validation Images After': data_stats_after_elimination['Number of Validation Images'],
-        'Number of Test Images After': data_stats_after_elimination['Number of Test Images'],
-        'Total After': data_stats_after_elimination['Total'],
-        'Number of Train Eliminated': data_stats_before_elimination['Number of Training Images'] - data_stats_after_elimination['Number of Training Images'],
-        'Number of Val Eliminated': data_stats_before_elimination['Number of Validation Images'] - data_stats_after_elimination['Number of Validation Images'],
-        'Number of Test Eliminated': data_stats_before_elimination['Number of Test Images'] - data_stats_after_elimination['Number of Test Images'],
-        })
+#     data_stats_complete = pd.DataFrame({
+#         'Supercategory Name': data_stats_before_elimination['Supercategory Name'],
+#         'Category Name': data_stats_before_elimination['Category Name'],
+#         'Number of Training Images Before': data_stats_before_elimination['Number of Training Images'],
+#         'Number of Validation Images Before': data_stats_before_elimination['Number of Validation Images'],
+#         'Number of Test Images Before': data_stats_before_elimination['Number of Test Images'],
+#         'Total Before': data_stats_before_elimination['Total'],
+#         'Number of Training Images After': data_stats_after_elimination['Number of Training Images'],
+#         'Number of Validation Images After': data_stats_after_elimination['Number of Validation Images'],
+#         'Number of Test Images After': data_stats_after_elimination['Number of Test Images'],
+#         'Total After': data_stats_after_elimination['Total'],
+#         'Number of Train Eliminated': data_stats_before_elimination['Number of Training Images'] - data_stats_after_elimination['Number of Training Images'],
+#         'Number of Val Eliminated': data_stats_before_elimination['Number of Validation Images'] - data_stats_after_elimination['Number of Validation Images'],
+#         'Number of Test Eliminated': data_stats_before_elimination['Number of Test Images'] - data_stats_after_elimination['Number of Test Images'],
+#         })
 
-    # Insert a row of sum of all categories
-    data_stats_complete.loc[len(data_stats_complete)] = ["Total", "Nah",
-        data_stats_before_elimination['Number of Training Images'].sum(),
-        data_stats_before_elimination['Number of Validation Images'].sum(),
-        data_stats_before_elimination['Number of Test Images'].sum(),
-        data_stats_before_elimination['Total'].sum(),
-        data_stats_after_elimination['Number of Training Images'].sum(),
-        data_stats_after_elimination['Number of Validation Images'].sum(),
-        data_stats_after_elimination['Number of Test Images'].sum(),
-        data_stats_after_elimination['Total'].sum(),
-        data_stats_before_elimination['Number of Training Images'].sum() - data_stats_after_elimination['Number of Training Images'].sum(),
-        data_stats_before_elimination['Number of Validation Images'].sum() - data_stats_after_elimination['Number of Validation Images'].sum(),
-        data_stats_before_elimination['Number of Test Images'].sum() - data_stats_after_elimination['Number of Test Images'].sum()]
+#     # Insert a row of sum of all categories
+#     data_stats_complete.loc[len(data_stats_complete)] = ["Total", "Nah",
+#         data_stats_before_elimination['Number of Training Images'].sum(),
+#         data_stats_before_elimination['Number of Validation Images'].sum(),
+#         data_stats_before_elimination['Number of Test Images'].sum(),
+#         data_stats_before_elimination['Total'].sum(),
+#         data_stats_after_elimination['Number of Training Images'].sum(),
+#         data_stats_after_elimination['Number of Validation Images'].sum(),
+#         data_stats_after_elimination['Number of Test Images'].sum(),
+#         data_stats_after_elimination['Total'].sum(),
+#         data_stats_before_elimination['Number of Training Images'].sum() - data_stats_after_elimination['Number of Training Images'].sum(),
+#         data_stats_before_elimination['Number of Validation Images'].sum() - data_stats_after_elimination['Number of Validation Images'].sum(),
+#         data_stats_before_elimination['Number of Test Images'].sum() - data_stats_after_elimination['Number of Test Images'].sum()]
     
-    # Incert a column of train-val-test ration after elimination
+#     # Incert a column of train-val-test ration after elimination
 
-    data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Train Ratio', 
-                              data_stats_complete['Number of Training Images Before'] / data_stats_complete['Total Before'])
+#     data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Train Ratio', 
+#                               data_stats_complete['Number of Training Images Before'] / data_stats_complete['Total Before'])
     
-    data_stats_complete.insert(len(data_stats_complete.columns), 'Final Train Ratio', 
-                              data_stats_complete['Number of Training Images After'] / data_stats_complete['Total After'])
+#     data_stats_complete.insert(len(data_stats_complete.columns), 'Final Train Ratio', 
+#                               data_stats_complete['Number of Training Images After'] / data_stats_complete['Total After'])
     
-    data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Val Ratio',
-                            data_stats_complete['Number of Validation Images Before'] / data_stats_complete['Total Before'])
+#     data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Val Ratio',
+#                             data_stats_complete['Number of Validation Images Before'] / data_stats_complete['Total Before'])
 
-    data_stats_complete.insert(len(data_stats_complete.columns), 'Final Val Ratio',
-                            data_stats_complete['Number of Validation Images After'] / data_stats_complete['Total After'])
+#     data_stats_complete.insert(len(data_stats_complete.columns), 'Final Val Ratio',
+#                             data_stats_complete['Number of Validation Images After'] / data_stats_complete['Total After'])
     
-    data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Test Ratio',
-                            data_stats_complete['Number of Test Images Before'] / data_stats_complete['Total Before'])
+#     data_stats_complete.insert(len(data_stats_complete.columns), 'Prior Test Ratio',
+#                             data_stats_complete['Number of Test Images Before'] / data_stats_complete['Total Before'])
     
-    data_stats_complete.insert(len(data_stats_complete.columns), 'Final Test Ratio',
-                            data_stats_complete['Number of Test Images After'] / data_stats_complete['Total After'])
+#     data_stats_complete.insert(len(data_stats_complete.columns), 'Final Test Ratio',
+#                             data_stats_complete['Number of Test Images After'] / data_stats_complete['Total After'])
     
-    if verbose:
-        print("Leaked data eliminated.")
-        print(f"{num_leaked_train_test} leaked images in train and test. Removed from training set.")
-        print(f"{num_leaked_val_test} leaked images in val and test. Removed from validation set.")
-        print(f"Total leaked images: {total_leaked_images}")
-        print("Data summary afte leakage elimination:")
-        print(data_stats_complete)
+#     if verbose:
+#         print("Leaked data eliminated.")
+#         print(f"{num_leaked_train_test} leaked images in train and test. Removed from training set.")
+#         print(f"{num_leaked_val_test} leaked images in val and test. Removed from validation set.")
+#         print(f"Total leaked images: {total_leaked_images}")
+#         print("Data summary afte leakage elimination:")
+#         print(data_stats_complete)
 
-    # Save result of dataset: before and after elimination
-    if save_result:
-        print("Saving dataset stats after elimination...")
-        data_stats_complete.to_csv(f'dataset_stats_{experiment_name}.csv', index=False)
+#     # Save result of dataset: before and after elimination
+#     if save_result:
+#         print("Saving dataset stats after elimination...")
+#         data_stats_complete.to_csv(f'dataset_stats_{experiment_name}.csv', index=False)
 
-    return train_data, val_data, test_data
+#     return train_data, val_data, test_data
 
 
 
-def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=True, save_result=False):
-    """
-    Check the distribution of categories across train, validation, and test sets.
-    Also checks for overlaps between assigned classes (multi-label scenarios).
+# def check_category_distribution(experiment_name, train_data, val_data, test_data, verbose=True, save_result=False):
+#     """
+#     Check the distribution of categories across train, validation, and test sets.
+#     Also checks for overlaps between assigned classes (multi-label scenarios).
     
-    Args:
-        experiment_name: Name of the experiment
-        train_data: Training dataset (MSCOCOCustomDataset)
-        val_data: Validation dataset (MSCOCOCustomDataset)
-        test_data: Test dataset (MSCOCOCustomDataset)
-        verbose: Whether to print detailed information
-        save_result: Whether to save the result
-    Returns:
-        dict: Category distribution statistics and overlap analysis
-    """
+#     Args:
+#         experiment_name: Name of the experiment
+#         train_data: Training dataset (MSCOCOCustomDataset)
+#         val_data: Validation dataset (MSCOCOCustomDataset)
+#         test_data: Test dataset (MSCOCOCustomDataset)
+#         verbose: Whether to print detailed information
+#         save_result: Whether to save the result
+#     Returns:
+#         dict: Category distribution statistics and overlap analysis
+#     """
     
-    # Get category distributions
-    train_categories = Counter(train_data.img_labels.values())
-    val_categories = Counter(val_data.img_labels.values()) if val_data is not None else Counter()
-    test_categories = Counter(test_data.img_labels.values())
+#     # Get category distributions
+#     train_categories = Counter(train_data.img_labels.values())
+#     val_categories = Counter(val_data.img_labels.values()) if val_data is not None else Counter()
+#     test_categories = Counter(test_data.img_labels.values())
     
-    # Get all unique categories
-    all_categories = set(train_categories.keys()) | set(val_categories.keys()) | set(test_categories.keys())
+#     # Get all unique categories
+#     all_categories = set(train_categories.keys()) | set(val_categories.keys()) | set(test_categories.keys())
     
-    # Create distribution dataframe
-    distribution_data = []
-    for category in sorted(all_categories):
-        train_count = train_categories.get(category, 0)
-        val_count = val_categories.get(category, 0)
-        test_count = test_categories.get(category, 0)
-        total_count = train_count + val_count + test_count
+#     # Create distribution dataframe
+#     distribution_data = []
+#     for category in sorted(all_categories):
+#         train_count = train_categories.get(category, 0)
+#         val_count = val_categories.get(category, 0)
+#         test_count = test_categories.get(category, 0)
+#         total_count = train_count + val_count + test_count
         
-        if total_count > 0:
-            train_pct = (train_count / total_count) * 100
-            val_pct = (val_count / total_count) * 100
-            test_pct = (test_count / total_count) * 100
-        else:
-            train_pct = val_pct = test_pct = 0
+#         if total_count > 0:
+#             train_pct = (train_count / total_count) * 100
+#             val_pct = (val_count / total_count) * 100
+#             test_pct = (test_count / total_count) * 100
+#         else:
+#             train_pct = val_pct = test_pct = 0
             
-        distribution_data.append({
-            'category': category,
-            'train_count': train_count,
-            'val_count': val_count,
-            'test_count': test_count,
-            'total_count': total_count,
-            'train_pct': train_pct,
-            'val_pct': val_pct,
-            'test_pct': test_pct
-        })
+#         distribution_data.append({
+#             'category': category,
+#             'train_count': train_count,
+#             'val_count': val_count,
+#             'test_count': test_count,
+#             'total_count': total_count,
+#             'train_pct': train_pct,
+#             'val_pct': val_pct,
+#             'test_pct': test_pct
+#         })
     
-    df = pd.DataFrame(distribution_data)
+#     df = pd.DataFrame(distribution_data)
     
-    # Check for class overlaps/co-occurrence in images
-    def analyze_class_overlaps(dataset, dataset_name):
-        """Analyze if the same image has multiple class labels assigned"""
-        image_to_categories = defaultdict(list)
+#     # Check for class overlaps/co-occurrence in images
+#     def analyze_class_overlaps(dataset, dataset_name):
+#         """Analyze if the same image has multiple class labels assigned"""
+#         image_to_categories = defaultdict(list)
         
-        # Group categories by image ID
-        for img_id, category in dataset.img_labels.items():
-            image_to_categories[img_id].append(category)
+#         # Group categories by image ID
+#         for img_id, category in dataset.img_labels.items():
+#             image_to_categories[img_id].append(category)
         
-        # Find images with multiple categories
-        multi_label_images = {img_id: cats for img_id, cats in image_to_categories.items() if len(cats) > 1}
+#         # Find images with multiple categories
+#         multi_label_images = {img_id: cats for img_id, cats in image_to_categories.items() if len(cats) > 1}
         
-        # Count co-occurrences between categories
-        category_pairs = defaultdict(int)
-        for img_id, categories in multi_label_images.items():
-            for i, cat1 in enumerate(categories):
-                for cat2 in categories[i+1:]:
-                    pair = tuple(sorted([cat1, cat2]))
-                    category_pairs[pair] += 1
+#         # Count co-occurrences between categories
+#         category_pairs = defaultdict(int)
+#         for img_id, categories in multi_label_images.items():
+#             for i, cat1 in enumerate(categories):
+#                 for cat2 in categories[i+1:]:
+#                     pair = tuple(sorted([cat1, cat2]))
+#                     category_pairs[pair] += 1
         
-        return {
-            'total_images': len(image_to_categories),
-            'multi_label_images': len(multi_label_images),
-            'multi_label_percentage': (len(multi_label_images) / len(image_to_categories)) * 100 if len(image_to_categories) > 0 else 0,
-            'category_pairs': dict(category_pairs),
-            'multi_label_examples': dict(list(multi_label_images.items())[:5])  # First 5 examples
-        }
+#         return {
+#             'total_images': len(image_to_categories),
+#             'multi_label_images': len(multi_label_images),
+#             'multi_label_percentage': (len(multi_label_images) / len(image_to_categories)) * 100 if len(image_to_categories) > 0 else 0,
+#             'category_pairs': dict(category_pairs),
+#             'multi_label_examples': dict(list(multi_label_images.items())[:5])  # First 5 examples
+#         }
     
-    # Analyze overlaps for each dataset
-    train_overlaps = analyze_class_overlaps(train_data, "Training")
-    val_overlaps = analyze_class_overlaps(val_data, "Validation") if val_data is not None else {
-        'total_images': 0, 'multi_label_images': 0, 'multi_label_percentage': 0, 
-        'category_pairs': {}, 'multi_label_examples': {}
-    }
-    test_overlaps = analyze_class_overlaps(test_data, "Test")
+#     # Analyze overlaps for each dataset
+#     train_overlaps = analyze_class_overlaps(train_data, "Training")
+#     val_overlaps = analyze_class_overlaps(val_data, "Validation") if val_data is not None else {
+#         'total_images': 0, 'multi_label_images': 0, 'multi_label_percentage': 0, 
+#         'category_pairs': {}, 'multi_label_examples': {}
+#     }
+#     test_overlaps = analyze_class_overlaps(test_data, "Test")
     
-    # Combine all category pairs to get overall co-occurrence statistics
-    all_category_pairs = defaultdict(int)
-    for pairs_dict in [train_overlaps['category_pairs'], val_overlaps['category_pairs'], test_overlaps['category_pairs']]:
-        for pair, count in pairs_dict.items():
-            all_category_pairs[pair] += count
+#     # Combine all category pairs to get overall co-occurrence statistics
+#     all_category_pairs = defaultdict(int)
+#     for pairs_dict in [train_overlaps['category_pairs'], val_overlaps['category_pairs'], test_overlaps['category_pairs']]:
+#         for pair, count in pairs_dict.items():
+#             all_category_pairs[pair] += count
     
-    # Sort category pairs by frequency
-    sorted_pairs = sorted(all_category_pairs.items(), key=lambda x: x[1], reverse=True)
+#     # Sort category pairs by frequency
+#     sorted_pairs = sorted(all_category_pairs.items(), key=lambda x: x[1], reverse=True)
     
-    if verbose:
-        print("="*80)
-        print("CATEGORY DISTRIBUTION & OVERLAP REPORT")
-        print("="*80)
+#     if verbose:
+#         print("="*80)
+#         print("CATEGORY DISTRIBUTION & OVERLAP REPORT")
+#         print("="*80)
         
-        print(f"\nTotal Categories: {len(all_categories)}")
-        print(f"Training Images: {sum(train_categories.values()):,}")
-        print(f"Validation Images: {sum(val_categories.values()):,}")
-        print(f"Test Images: {sum(test_categories.values()):,}")
+#         print(f"\nTotal Categories: {len(all_categories)}")
+#         print(f"Training Images: {sum(train_categories.values()):,}")
+#         print(f"Validation Images: {sum(val_categories.values()):,}")
+#         print(f"Test Images: {sum(test_categories.values()):,}")
         
-        print(f"\nDetailed Distribution:")
-        print(df.to_string(index=False, float_format='%.1f'))
+#         print(f"\nDetailed Distribution:")
+#         print(df.to_string(index=False, float_format='%.1f'))
         
-        # Check for missing categories in any split
-        missing_in_train = [cat for cat in all_categories if train_categories.get(cat, 0) == 0]
-        missing_in_val = [cat for cat in all_categories if val_categories.get(cat, 0) == 0]
-        missing_in_test = [cat for cat in all_categories if test_categories.get(cat, 0) == 0]
+#         # Check for missing categories in any split
+#         missing_in_train = [cat for cat in all_categories if train_categories.get(cat, 0) == 0]
+#         missing_in_val = [cat for cat in all_categories if val_categories.get(cat, 0) == 0]
+#         missing_in_test = [cat for cat in all_categories if test_categories.get(cat, 0) == 0]
         
-        if missing_in_train:
-            print(f"\nCategories missing in TRAINING: {missing_in_train}")
-        if missing_in_val and val_data is not None:
-            print(f"Categories missing in VALIDATION: {missing_in_val}")
-        if missing_in_test:
-            print(f"Categories missing in TEST: {missing_in_test}")
+#         if missing_in_train:
+#             print(f"\nCategories missing in TRAINING: {missing_in_train}")
+#         if missing_in_val and val_data is not None:
+#             print(f"Categories missing in VALIDATION: {missing_in_val}")
+#         if missing_in_test:
+#             print(f"Categories missing in TEST: {missing_in_test}")
             
-        if not missing_in_train and not missing_in_val and not missing_in_test:
-            print(f"\nAll categories present in all splits")
+#         if not missing_in_train and not missing_in_val and not missing_in_test:
+#             print(f"\nAll categories present in all splits")
         
-        # Report class overlap analysis
-        print(f"\n" + "="*60)
-        print("CLASS OVERLAP ANALYSIS")
-        print("="*60)
+#         # Report class overlap analysis
+#         print(f"\n" + "="*60)
+#         print("CLASS OVERLAP ANALYSIS")
+#         print("="*60)
         
-        print(f"\nMulti-label Image Statistics:")
-        print(f"  Training Set:")
-        print(f"    Total Images: {train_overlaps['total_images']:,}")
-        print(f"    Multi-label Images: {train_overlaps['multi_label_images']:,} ({train_overlaps['multi_label_percentage']:.2f}%)")
+#         print(f"\nMulti-label Image Statistics:")
+#         print(f"  Training Set:")
+#         print(f"    Total Images: {train_overlaps['total_images']:,}")
+#         print(f"    Multi-label Images: {train_overlaps['multi_label_images']:,} ({train_overlaps['multi_label_percentage']:.2f}%)")
         
-        if val_data is not None:
-            print(f"  Validation Set:")
-            print(f"    Total Images: {val_overlaps['total_images']:,}")
-            print(f"    Multi-label Images: {val_overlaps['multi_label_images']:,} ({val_overlaps['multi_label_percentage']:.2f}%)")
+#         if val_data is not None:
+#             print(f"  Validation Set:")
+#             print(f"    Total Images: {val_overlaps['total_images']:,}")
+#             print(f"    Multi-label Images: {val_overlaps['multi_label_images']:,} ({val_overlaps['multi_label_percentage']:.2f}%)")
         
-        print(f"  Test Set:")
-        print(f"    Total Images: {test_overlaps['total_images']:,}")
-        print(f"    Multi-label Images: {test_overlaps['multi_label_images']:,} ({test_overlaps['multi_label_percentage']:.2f}%)")
+#         print(f"  Test Set:")
+#         print(f"    Total Images: {test_overlaps['total_images']:,}")
+#         print(f"    Multi-label Images: {test_overlaps['multi_label_images']:,} ({test_overlaps['multi_label_percentage']:.2f}%)")
         
-        # Show most common category co-occurrences
-        if sorted_pairs:
-            print(f"\nMost Common Category Co-occurrences:")
-            for i, ((cat1, cat2), count) in enumerate(sorted_pairs[:10]):
-                print(f"  {i+1}. {cat1} + {cat2}: {count} images")
-        else:
-            print(f"\nNo category co-occurrences detected")
-            print(f"   Each image has exactly one category assigned")
+#         # Show most common category co-occurrences
+#         if sorted_pairs:
+#             print(f"\nMost Common Category Co-occurrences:")
+#             for i, ((cat1, cat2), count) in enumerate(sorted_pairs[:10]):
+#                 print(f"  {i+1}. {cat1} + {cat2}: {count} images")
+#         else:
+#             print(f"\nNo category co-occurrences detected")
+#             print(f"   Each image has exactly one category assigned")
         
-        # Show examples of multi-label images
-        if train_overlaps['multi_label_examples']:
-            print(f"\nExample Multi-label Images (Training Set):")
-            for img_id, categories in list(train_overlaps['multi_label_examples'].items())[:3]:
-                print(f"  Image {img_id}: {', '.join(categories)}")
+#         # Show examples of multi-label images
+#         if train_overlaps['multi_label_examples']:
+#             print(f"\nExample Multi-label Images (Training Set):")
+#             for img_id, categories in list(train_overlaps['multi_label_examples'].items())[:3]:
+#                 print(f"  Image {img_id}: {', '.join(categories)}")
         
-        # Assessment
-        total_multi_label = train_overlaps['multi_label_images'] + val_overlaps['multi_label_images'] + test_overlaps['multi_label_images']
-        if total_multi_label > 0:
-            print(f"\nMULTI-LABEL SCENARIO DETECTED!")
-            print(f"   {total_multi_label} images have multiple category assignments")
-            print(f"   Consider using multi-label classification approaches")
-            print(f"   Current single-label approach may not capture all information")
-        else:
-            print(f"\nSINGLE-LABEL SCENARIO CONFIRMED")
-            print(f"   Each image has exactly one category assigned")
-            print(f"   Single-label classification approach is appropriate")
+#         # Assessment
+#         total_multi_label = train_overlaps['multi_label_images'] + val_overlaps['multi_label_images'] + test_overlaps['multi_label_images']
+#         if total_multi_label > 0:
+#             print(f"\nMULTI-LABEL SCENARIO DETECTED!")
+#             print(f"   {total_multi_label} images have multiple category assignments")
+#             print(f"   Consider using multi-label classification approaches")
+#             print(f"   Current single-label approach may not capture all information")
+#         else:
+#             print(f"\nSINGLE-LABEL SCENARIO CONFIRMED")
+#             print(f"   Each image has exactly one category assigned")
+#             print(f"   Single-label classification approach is appropriate")
             
-        print("="*80)
+#         print("="*80)
 
-    assessment_result = {
-        'distribution_df': df,
-        'missing_in_train': missing_in_train,
-        'missing_in_val': missing_in_val,
-        'missing_in_test': missing_in_test,
-        'total_categories': len(all_categories),
-        'train_overlaps': train_overlaps,
-        'val_overlaps': val_overlaps,
-        'test_overlaps': test_overlaps,
-        'category_co_occurrences': dict(sorted_pairs),
-        'is_multi_label': total_multi_label > 0,
-        'total_multi_label_images': total_multi_label
-    }
+#     assessment_result = {
+#         'distribution_df': df,
+#         'missing_in_train': missing_in_train,
+#         'missing_in_val': missing_in_val,
+#         'missing_in_test': missing_in_test,
+#         'total_categories': len(all_categories),
+#         'train_overlaps': train_overlaps,
+#         'val_overlaps': val_overlaps,
+#         'test_overlaps': test_overlaps,
+#         'category_co_occurrences': dict(sorted_pairs),
+#         'is_multi_label': total_multi_label > 0,
+#         'total_multi_label_images': total_multi_label
+#     }
     
-    return assessment_result
+#     return assessment_result
 
 if __name__ == '__main__':
 

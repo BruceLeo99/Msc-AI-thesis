@@ -632,7 +632,6 @@ def test_vgg16(model_path,
     y_true = []
     y_pred = []
 
-    
     # Confusion matrix image mapping: (true_class, predicted_class) -> list of image details
     confusion_matrix_for_each_individual = {}
 
@@ -658,38 +657,30 @@ def test_vgg16(model_path,
             test_total += labels.size(0)
             test_correct += predicted.eq(labels).sum().item()
 
-            for p, t in zip(predicted, labels):
-                # Convert tensors to integers
-                p_int = p.item()
-                t_int = t.item()
-                
-                # Get class names
-                true_class = idx_to_label[t_int]
-                pred_class = idx_to_label[p_int]
+            # Store raw integer labels for confusion matrix
+            y_true.append(labels.item())
+            y_pred.append(predicted.item())
+            y_img_ids.append(image_id)
 
-                y_img_ids.append(image_id)
-                y_true.append(true_class)
-                y_pred.append(pred_class)
-                
-                # Create confusion matrix mapping
-                cell_key = f"{t_int}_{p_int}"
-                if cell_key not in confusion_matrix_for_each_individual:
-                    confusion_matrix_for_each_individual[cell_key] = []
-                
-                # Store comprehensive image information
-                image_info = {
-                    'image_id': image_id,
-                    'image_url': image_url,
-                    'image_caption': image_caption,
-                    'true_label': true_class,
-                    'pred_label': pred_class,
-                    'correct': true_class == pred_class
-                }
-                confusion_matrix_for_each_individual[cell_key].append(image_info)
+            # Store detailed information for confusion matrix visualization
+            cell_key = f"{labels.item()}_{predicted.item()}"
+            if cell_key not in confusion_matrix_for_each_individual:
+                confusion_matrix_for_each_individual[cell_key] = []
+            
+            # Store comprehensive image information
+            image_info = {
+                'image_id': image_id,
+                'image_url': image_url,
+                'image_caption': image_caption,
+                'true_label': idx_to_label[labels.item()],
+                'pred_label': idx_to_label[predicted.item()],
+                'correct': labels.item() == predicted.item()
+            }
+            confusion_matrix_for_each_individual[cell_key].append(image_info)
 
-                if verbose:
-                    print(f"Image ID: {image_id}, Image Label: {image_label}, Image URL: {image_url}, Image Caption: {image_caption}")
-                    print(f"Predicted: {pred_class}, True: {true_class}")
+            if verbose:
+                print(f"Image ID: {image_id}, Image Label: {image_label}, Image URL: {image_url}, Image Caption: {image_caption}")
+                print(f"Predicted: {idx_to_label[predicted.item()]}, True: {idx_to_label[labels.item()]}")
 
             # Free memory
             del images, labels, outputs, predicted
@@ -699,28 +690,35 @@ def test_vgg16(model_path,
 
     test_accuracy = 100 * test_correct / test_total
 
+    # Convert labels to class names for individual results
     individual_prediction_results = dict()
-
     for test_image_id, test_label, test_pred in zip(y_img_ids, y_true, y_pred):
         individual_prediction_results[test_image_id] = {
-            'true_label': test_label,
-            'pred_label': test_pred
+            'true_label': idx_to_label[test_label],
+            'pred_label': idx_to_label[test_pred]
         }
+
+    # Get unique labels in sorted order for consistent matrix
+    unique_labels = sorted(list(set(y_true + y_pred)))
+    label_names = [idx_to_label[idx] for idx in unique_labels]
+
+    # Generate classification report and confusion matrix using integer labels
+    classi_report = classification_report(y_true, y_pred, 
+                                       labels=unique_labels,
+                                       target_names=label_names, 
+                                       output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_labels)
 
     print(f"\n{'='*60}")
     print("TEST RESULTS")
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    classi_report = classification_report(y_true, y_pred, labels=list(idx_to_label.keys()), target_names=list(idx_to_label.values()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred)
-
     print("\nClassification Report:")
-    print(classi_report)
+    print(classification_report(y_true, y_pred, labels=unique_labels, target_names=label_names))
 
     print("\nConfusion Matrix:")
     print(conf_matrix)
-
 
     test_result = {
         'experiment_name': experiment_name,
@@ -735,19 +733,18 @@ def test_vgg16(model_path,
     if save_result:
         with open(f"results/{experiment_name}_test_result.json", "w") as f:
             json.dump(test_result, f)
-            
 
+        # Save classification report with proper labels
         df_classification_report = pd.DataFrame(classi_report).T
-        # The classification report already has proper row names, just ensure they're clean
         df_classification_report.index.name = 'Class'
         df_classification_report.to_csv(f"results/classification_reports/{experiment_name}_classification_report.csv")
 
-        # For confusion matrix, add proper labels
-        df_confusion_matrix = pd.DataFrame(conf_matrix)
-        # Set row and column labels to class names
-        class_names = list(idx_to_label.values())
-        df_confusion_matrix.index = class_names
-        df_confusion_matrix.columns = class_names
+        # Save confusion matrix with proper labels
+        df_confusion_matrix = pd.DataFrame(
+            conf_matrix,
+            index=label_names,
+            columns=label_names
+        )
         df_confusion_matrix.index.name = 'True Label'
         df_confusion_matrix.columns.name = 'Predicted Label'
         df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
