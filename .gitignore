@@ -22,6 +22,7 @@ visualbert/
 shell_scripts/
 test scripts/
 old_results/
+results_*/
 
 
 # Individual files and scripts
@@ -41,6 +42,7 @@ example_multiGPU_usage.py
 check_gpu_usage.py
 resnet18_model_multiGPU.py
 vgg16_model_multiGPU.py
+multimodal_PBN_explain.py
 
 # Model files
 *.pth

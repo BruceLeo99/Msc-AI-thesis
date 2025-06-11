@@ -14,7 +14,7 @@ import os
 from helpers import makedir
 import model
 import find_nearest
-import train_and_test as tnt
+import ProtoPNet.train_and_test_mPBN as tnt
 
 from preprocess import preprocess_input_function
 

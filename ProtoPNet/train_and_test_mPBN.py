@@ -29,36 +29,39 @@ def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    for i, (image, label) in enumerate(dataloader):
-        input = image.to(device)
-        target = label.to(device)
+    for i, batch in enumerate(dataloader):
+        # Move each tensor in the batch to device
+        inputs = {
+            'input_ids': batch['input_ids'].to(device),
+            'attention_mask': batch['attention_mask'].to(device),
+            'token_type_ids': batch['token_type_ids'].to(device),
+            'visual_embeds': batch['visual_embeds'].to(device),
+            'visual_attention_mask': batch['visual_attention_mask'].to(device)
+        }
+        target = batch['label'].to(device)
 
         # torch.enable_grad() has no effect outside of no_grad()
         grad_req = torch.enable_grad() if is_train else torch.no_grad()
         with grad_req:
             # nn.Module has implemented __call__() function
             # so no need to call .forward
-            output, min_distances = model(input)
+            output, min_distances = model(inputs)
 
             # compute loss
             cross_entropy = torch.nn.functional.cross_entropy(output, target)
 
             if class_specific:
-                max_dist = (model.module.prototype_shape[1]
-                            * model.module.prototype_shape[2]
-                            * model.module.prototype_shape[3])
-
                 # prototypes_of_correct_class is a tensor of shape batch_size * num_prototypes
                 # calculate cluster cost
-                prototypes_of_correct_class = torch.t(model.module.prototype_class_identity[:,label]).to(device)
-                inverted_distances, _ = torch.max((max_dist - min_distances) * prototypes_of_correct_class, dim=1)
-                cluster_cost = torch.mean(max_dist - inverted_distances)
+                prototypes_of_correct_class = torch.t(model.module.prototype_class_identity[:,target]).to(device)
+                inverted_distances, _ = torch.max((1.0 - min_distances) * prototypes_of_correct_class, dim=1)
+                cluster_cost = torch.mean(1.0 - inverted_distances)
 
                 # calculate separation cost
                 prototypes_of_wrong_class = 1 - prototypes_of_correct_class
                 inverted_distances_to_nontarget_prototypes, _ = \
-                    torch.max((max_dist - min_distances) * prototypes_of_wrong_class, dim=1)
-                separation_cost = torch.mean(max_dist - inverted_distances_to_nontarget_prototypes)
+                    torch.max((1.0 - min_distances) * prototypes_of_wrong_class, dim=1)
+                separation_cost = torch.mean(1.0 - inverted_distances_to_nontarget_prototypes)
 
                 # calculate avg cluster cost
                 avg_separation_cost = \
@@ -111,7 +114,7 @@ def _train_or_test(model, dataloader, optimizer=None, class_specific=True, use_l
             loss.backward()
             optimizer.step()
 
-        del input
+        del inputs
         del target
         del output
         del predicted

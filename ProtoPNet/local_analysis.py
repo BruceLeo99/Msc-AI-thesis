@@ -17,7 +17,7 @@ import copy
 from helpers import makedir, find_high_activation_crop
 import model
 import push
-import train_and_test as tnt
+import ProtoPNet.train_and_test_mPBN as tnt
 import save
 from log import create_logger
 from preprocess import mean, std, preprocess_input_function, undo_preprocess_input_function

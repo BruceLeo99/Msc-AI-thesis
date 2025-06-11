@@ -19,7 +19,7 @@ import json
 from MSCOCO_preprocessing_local import *
 
 from ProtoPNet.model import construct_PPNet
-from ProtoPNet.train_and_test import train, validate
+from ProtoPNet.train_and_test_PBN import train, validate
 from ProtoPNet.resnet_features import resnet18_features, resnet34_features, resnet50_features, resnet101_features, resnet152_features
 from ProtoPNet.vgg_features import vgg16_features, vgg19_features
 from torchvision import transforms

@@ -23,6 +23,7 @@ from io import BytesIO
 import json 
 import time
 
+from transformers import AutoTokenizer
 
 pylab.rcParams['figure.figsize'] = (8.0, 10.0)
 
@@ -176,7 +177,7 @@ class MSCOCOCustomDataset(Dataset):
     """
 
     def __init__(self, data_list=None, load_from_json=None, load_from_local=True,
-                 transform=None, target_transform=None, load_captions=False):
+                 transform='vgg16', target_transform='integer', load_captions=False):
         
         """
         param data_list: list of dictionaries containing image information
@@ -192,9 +193,6 @@ class MSCOCOCustomDataset(Dataset):
         self.load_from_json = load_from_json       
         self.transform = transform
         self.target_transform = target_transform
-
-        if any([self.transform, self.target_transform]) is None:
-            raise ValueError("You did not provide the transform or target_transform")
 
         if data_list is not None:
             self.data = data_list
@@ -251,6 +249,10 @@ class MSCOCOCustomDataset(Dataset):
 
         if self.target_transform == "integer":
             self.target_transform = self._convert_label_to_integer
+
+        if load_captions:
+            self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+            self.max_length = 128  # Adjust this based on your needs
 
     def _convert_label_to_integer(self, label):
         return self.label_name_idx[label]
@@ -319,9 +321,6 @@ class MSCOCOCustomDataset(Dataset):
                 
     
     def __getitem__(self, idx):
-        """ 
-        Retrieves an image and its corresponding label, also the caption if it is enabled.
-        """
         if idx >= self.dataset_length or idx < 0:
             raise IndexError(f"Index {idx} out of range for dataset of size {self.dataset_length}")
             
@@ -335,6 +334,7 @@ class MSCOCOCustomDataset(Dataset):
 
         if self.transform is not None:
             image = self.transform(image)
+            print(f"Image shape after transform: {image.shape}")  # Debug print
 
         if self.target_transform is not None:
             if self.target_transform == "integer":
@@ -344,11 +344,34 @@ class MSCOCOCustomDataset(Dataset):
             
         if self.load_captions:
             image_caption = self.img_captions[image_id]
-            # print("Returning 3 items")
-            return image, image_label, image_caption
+            
+            # Tokenize caption with padding and truncation
+            encoding = self.tokenizer(
+                image_caption,
+                padding='max_length',
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors='pt',
+                return_token_type_ids=True,  # Important for BERT models
+                return_attention_mask=True
+            )
+            
+            # Remove batch dimension that the tokenizer adds
+            input_ids = encoding['input_ids'].squeeze(0)
+            attention_mask = encoding['attention_mask'].squeeze(0)
+            token_type_ids = encoding['token_type_ids'].squeeze(0)
+            
+            # Return a dictionary with all the necessary components
+            return {
+                'visual_embeds': image,  # Shape should be (C, H, W)
+                'input_ids': input_ids,
+                'attention_mask': attention_mask,
+                'token_type_ids': token_type_ids,
+                'visual_attention_mask': torch.ones(image.shape[0], dtype=torch.long),
+                'label': image_label
+            }
         
         else:
-            # print("Returning 2 items")
             return image, image_label
         
 
