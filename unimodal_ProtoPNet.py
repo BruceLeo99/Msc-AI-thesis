@@ -261,8 +261,13 @@ def test_protopnet(model_path,
 
     test_loader = DataLoader(test_data, shuffle=False)
 
-    label_names_idx = test_data.get_dataset_labels()
-    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+    print("Starting model testing...")
+    label_to_idx = test_data.get_dataset_labels()
+    print(f"Label names and indices: {label_to_idx}")
+    
+    # Create reverse mapping from index to name
+    idx_to_label = {idx: name for name, idx in label_to_idx.items()}
+    print(f"Index to label mapping: {idx_to_label}")
 
     model.eval()
     start = time.time()
@@ -361,11 +366,8 @@ def test_protopnet(model_path,
     label_names = [idx_to_label[idx] for idx in unique_labels]
 
     # Generate classification report and confusion matrix using integer labels
-    class_report = classification_report(y_true, y_pred, 
-                                      labels=unique_labels,
-                                      target_names=label_names, 
-                                      output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_labels)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
     
     if verbose:
         print("\nClassification Report:")
@@ -391,13 +393,13 @@ def test_protopnet(model_path,
         'l1': test_l1,
         'confusion_matrix_images': confusion_mapping,
         'individual_prediction_results': individual_prediction_results,
-        'classification_report': class_report,
+        'classification_report': classi_report,
     }
 
     if save_result:
         with open(f"{result_foldername}/{experiment_name}_test_result.json", "w") as f:
             json.dump(results, f, indent=2)
-        pd.DataFrame(class_report).T.to_csv(
+        pd.DataFrame(classi_report).T.to_csv(
             f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
         pd.DataFrame(conf_matrix,
                      index=list(idx_to_label.values()),

@@ -23,8 +23,6 @@ from io import BytesIO
 import json 
 import time
 
-from utils import label_to_idx
-
 from transformers import AutoTokenizer
 
 pylab.rcParams['figure.figsize'] = (8.0, 10.0)
@@ -71,6 +69,7 @@ coco_instance_train = COCO(trainInstanceFilepath)
 
 coco_caption_val = COCO(valCaptionFilepath)
 coco_instance_val = COCO(valInstanceFilepath)
+
 
 # Due to the limitation of the MS COCO API, I use the original validation set for testing.
 coco_data_path_dict = {
@@ -176,12 +175,10 @@ class MSCOCOCustomDataset(Dataset):
     param transform: optional transform to apply to the images
     param target_transform: optional transform to apply to the labels
     param load_captions: whether to load the captions
-    param fixed_label_mapping: optional dictionary mapping category names to indices for consistent label indexing
     """
 
     def __init__(self, data_list=None, load_from_json=None, load_from_local=True,
-                 transform='vgg16', target_transform='integer', load_captions=False,
-                 fixed_label_mapping=label_to_idx):
+                 transform='vgg16', target_transform='integer', load_captions=False, fix_label_mapping=True):
         
         """
         param data_list: list of dictionaries containing image information
@@ -190,7 +187,6 @@ class MSCOCOCustomDataset(Dataset):
         param target_transform: optional transform to apply to the labels
         param load_from_local: whether to load the data from local storage
         param load_captions: whether to load the captions
-        param fixed_label_mapping: optional dictionary mapping category names to indices
         """
 
         self.load_from_local = load_from_local
@@ -242,14 +238,12 @@ class MSCOCOCustomDataset(Dataset):
                                      std=[0.229, 0.224, 0.225])
             ])
 
-        # Use fixed label mapping if provided, otherwise create a new one
-        if fixed_label_mapping is not None:
-            self.label_name_idx = fixed_label_mapping
-            self.label_names = list(fixed_label_mapping.keys())
-        else:
-            # Sort the labels to ensure consistent ordering
+        if fix_label_mapping:
             self.label_names = sorted(list(set(self.img_labels.values())))
-            self.label_name_idx = {name: idx for idx, name in enumerate(self.label_names)}
+            self.label_name_idx = self._create_label_mapping()
+        else:
+            self.label_names = sorted(list(set(self.img_labels.values())))
+            self.label_name_idx = dict(zip(self.label_names, range(len(self.label_names))))
         
         if self.target_transform == "one_hot":
             self.target_transform = transforms.Compose([
@@ -265,6 +259,27 @@ class MSCOCOCustomDataset(Dataset):
 
     def _convert_label_to_integer(self, label):
         return self.label_name_idx[label]
+    
+    def _create_label_mapping(self):
+        """Creates a fixed mapping from category names to indices"""
+        label_mapping = {}
+        with open(trainInstanceFilepath, 'r') as f:
+            category_id_list = json.load(f)['categories']
+        
+        # Sort categories by name to ensure consistent ordering
+        sorted_categories = sorted(category_id_list, key=lambda x: x['name'])
+        
+        # Debug prints
+        print("\nCreating label mapping:")
+        print(f"Available categories in dataset: {self.label_names}")
+        print(f"All possible categories from COCO: {[cat['name'] for cat in sorted_categories]}")
+        
+        # Create zero-based consecutive indices only for categories present in the dataset
+        for idx, name in enumerate(self.label_names):
+            label_mapping[name] = idx
+            
+        print(f"Final label mapping: {label_mapping}")
+        return label_mapping
 
     def __len__(self):
         return self.dataset_length

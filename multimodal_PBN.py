@@ -358,8 +358,13 @@ def test_multimodal_PBN(model_path,
 
     test_loader = DataLoader(test_data, batch_size=32, shuffle=False, collate_fn=collate_fn)
 
-    label_names_idx = test_data.get_dataset_labels()
-    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+    print("Starting model testing...")
+    label_to_idx = test_data.get_dataset_labels()
+    print(f"Label names and indices: {label_to_idx}")
+    
+    # Create reverse mapping from index to name
+    idx_to_label = {idx: name for name, idx in label_to_idx.items()}
+    print(f"Index to label mapping: {idx_to_label}")
 
     model.eval()
     start = time.time()
@@ -456,11 +461,8 @@ def test_multimodal_PBN(model_path,
         })
 
     # Generate classification report and confusion matrix
-    class_report = classification_report(y_true, y_pred, 
-                                      labels=range(num_classes),
-                                      target_names=[idx_to_label[i] for i in range(num_classes)], 
-                                      output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=range(num_classes))
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
 
     if verbose:
         print("\nTest Results:")
@@ -480,7 +482,7 @@ def test_multimodal_PBN(model_path,
     if save_result:
         results = {
             'test_results': test_results,
-            'classification_report': class_report,
+            'classification_report': classi_report,
             'confusion_matrix': conf_matrix.tolist(),
             'confusion_mapping': confusion_mapping
         }
@@ -494,7 +496,7 @@ def test_multimodal_PBN(model_path,
         if not os.path.exists(f"{result_foldername}/confusion_matrices"):
             os.makedirs(f"{result_foldername}/confusion_matrices")
             
-        pd.DataFrame(class_report).T.to_csv(
+        pd.DataFrame(classi_report).T.to_csv(
             f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
         pd.DataFrame(conf_matrix,
                     index=[idx_to_label[i] for i in range(num_classes)],

@@ -656,11 +656,11 @@ def test_vgg16(model_path,
     confusion_matrix_for_each_individual = {}
 
     print("Starting model testing...")
-    label_names_idx = test_data.get_dataset_labels()
-    print(f"Label names and indices: {label_names_idx}")
+    label_to_idx = test_data.get_dataset_labels()
+    print(f"Label names and indices: {label_to_idx}")
     
     # Create reverse mapping from index to name
-    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+    idx_to_label = {idx: name for name, idx in label_to_idx.items()}
     print(f"Index to label mapping: {idx_to_label}")
 
     with torch.no_grad():
@@ -723,11 +723,8 @@ def test_vgg16(model_path,
     label_names = [idx_to_label[idx] for idx in unique_labels]
 
     # Generate classification report and confusion matrix using integer labels
-    classi_report = classification_report(y_true, y_pred, 
-                                       labels=unique_labels,
-                                       target_names=label_names, 
-                                       output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_labels)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
 
     print(f"\n{'='*60}")
     print("TEST RESULTS")
@@ -743,7 +740,7 @@ def test_vgg16(model_path,
     test_result = {
         'experiment_name': experiment_name,
         'pth_filepath': model_path,
-        'label_names_idx': label_names_idx,
+        'label_to_idx': label_to_idx,
         'idx_to_label': idx_to_label,
         'test_accuracy': test_accuracy,
         'confusion_matrix_for_each_individual': confusion_matrix_for_each_individual,

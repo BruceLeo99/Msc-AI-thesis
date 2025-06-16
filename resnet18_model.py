@@ -20,7 +20,7 @@ import json
 import torch.nn as nn
 
 from collections import OrderedDict
-from utils import set_seed, label_to_idx
+from utils import set_seed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -142,12 +142,10 @@ def train_resnet18(
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    
-    # Get the number of classes from the label mapping
-    num_classes = len(label_to_idx)
-    print(f"Initializing model with {num_classes} classes")
-    print(f"Label to index mapping: {label_to_idx}")
-    
+
+    num_classes = train_data.get_num_classes()
+
+    # Load model
     model = ResNet18(num_classes=num_classes).to(device)
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs for training")
@@ -156,6 +154,8 @@ def train_resnet18(
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Load Data
+        # Load Data
     if num_workers == 0:
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_data, shuffle=False)
@@ -174,6 +174,7 @@ def train_resnet18(
             num_workers=num_workers,
             pin_memory=True
         )
+    
 
     if save_result:
         with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:

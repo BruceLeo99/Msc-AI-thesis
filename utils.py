@@ -8,18 +8,6 @@ import random
 
 import json
 
-label_to_idx = {}
-
-with open('coco/annotations/instances_train2017.json', 'r') as f:
-    category_id_list = json.load(f)['categories']
-
-# Sort categories by name to ensure consistent ordering
-sorted_categories = sorted(category_id_list, key=lambda x: x['name'])
-# Create zero-based consecutive indices
-for idx, category in enumerate(sorted_categories):
-    label_to_idx[category['name']] = idx
-
-# print(label_to_idx)
 
 def get_accuracy(df, mode):
     """
