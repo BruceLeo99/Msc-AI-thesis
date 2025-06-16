@@ -127,7 +127,8 @@ def train_vgg16(
         lr_adjustment_patience = 5,
         save_result = False,
         early_stopping_patience = 10,
-        num_workers = 0
+        num_workers = 0,
+        result_foldername='results'
 ):
     
     """
@@ -151,11 +152,13 @@ def train_vgg16(
         num_workers: Number of workers for data loading
     """
 
-    if not os.path.exists(f"best_models"):
-        os.makedirs(f"best_models")
+    if not os.path.exists(f"/var/scratch/yyg760/best_models"):
+        os.makedirs(f"/var/scratch/yyg760/best_models")
 
-    if not os.path.exists(f"results"):
-        os.makedirs(f"results")
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
+
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     model = VGG16(num_classes=train_data.get_num_classes()).to(device)
 
@@ -196,13 +199,15 @@ def train_vgg16(
 
     # Train model
     if save_result:
-        with open(f"results/{model_name}_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
             f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     best_accuracy = 0
     current_lr = learning_rate
-    non_update_count = 0
-    lr_increase_count = 0
+    epochs_without_improvement = 0
+    lr_adjustments_made = 0
+    best_model_state = None
+
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1} of {num_epochs}")
@@ -284,24 +289,26 @@ def train_vgg16(
 
             ### Early Stopping & LR scheduling
             # Use validation accuracy for early stopping, then save and dynamically update the best model 
-            if val_accuracy - best_accuracy > 0.01:
+            if val_accuracy > best_accuracy:
                 print("Model performance improved")
                 best_accuracy = val_accuracy
-                non_update_count = 0
+                best_epoch = epoch + 1
+                epochs_without_improvement = 0
 
                 # Save best model based on validation accuracy
-                torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
-                print(f"Model saved to best_models/{model_name}_best.pth")
+                best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+                # torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+                print(f"Best model saved for epoch {epoch+1} with accuracy {val_accuracy:.4f}")
 
             else:
-                non_update_count += 1
-                print(f"Model performance did not improve for {non_update_count} times")
+                epochs_without_improvement += 1
+                print(f"Model performance did not improve for {epochs_without_improvement} times")
 
             # Increase learning rate if validation accuracy is not improving
             # Increase learning rate every 10 epochs 5 times in total. 
             # After 5 times, if the model still does not improve, stop training.
-            if non_update_count >= early_stopping_patience:
-                if lr_increase_count < lr_adjustment_patience:
+            if epochs_without_improvement >= early_stopping_patience:
+                if lr_adjustments_made < lr_adjustment_patience:
                     if lr_adjustment_mode == 'increase':
                         learning_rate += lr_adjustment_rate
                     elif lr_adjustment_mode == 'decrease':
@@ -310,8 +317,8 @@ def train_vgg16(
                     # Update optimizer learning rate
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = learning_rate
-                    lr_increase_count += 1
-                    non_update_count = 0
+                    lr_adjustments_made += 1
+                    epochs_without_improvement = 0
                     print(f"Learning rate increased to {learning_rate}")
                 else:
                     print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
@@ -320,12 +327,17 @@ def train_vgg16(
         # Calculate time spent for one epoch and save the result
         epoch_time = train_time_spent + val_time
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                 f.write(f"{epoch+1},{loss.item()},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f},{current_lr}\n")
     
     # End of training 
     print("Training Complete!")
-    return f"best_models/{model_name}_best.pth"
+
+    if best_model_state is not None:
+        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        print(f"Final best model confirmed saved: {model_name}_best.pth")
+
+    return f"{best_models_foldername}/{model_name}_best.pth"
 
 
 def train_vgg16_with_CV(
@@ -342,7 +354,8 @@ def train_vgg16_with_CV(
         early_stopping_patience = 10,
         lr_adjustment_patience = 5,
         random_state = 42,
-        num_workers = 0
+        num_workers = 0,
+        result_foldername='results'
 ):
     
     """
@@ -365,11 +378,13 @@ def train_vgg16_with_CV(
         random_state: Random state for cross-validation. For reproducibility, set 42 by default.
         num_workers: Number of workers for data loading. For better GPU utilization, set 0 by default.
     """
-    if not os.path.exists(f"best_models"):
-        os.makedirs(f"best_models")
+    if not os.path.exists(f"/var/scratch/yyg760/best_models"):
+        os.makedirs(f"/var/scratch/yyg760/best_models")
+
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
     
-    if not os.path.exists(f"results"):
-        os.makedirs(f"results")
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     # Clear GPU cache before training
     if torch.cuda.is_available():
@@ -378,8 +393,10 @@ def train_vgg16_with_CV(
     print(f"Starting Training with {n_folds}-fold Cross-Validation.\nModel: VGG16 baseline with No Prototypes")
     
     if save_result:
-        with open(f"results/{model_name}_cv_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_cv_result.csv", "w") as f:
             f.write("Fold,Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
+
+    best_model_state = None
 
     # Split data into K-Fold 
     kfold = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
@@ -527,7 +544,8 @@ def train_vgg16_with_CV(
                 non_update_count = 0
 
                 # Save best model for this fold
-                torch.save(fold_model.state_dict(), f"best_models/{model_name}_fold{fold+1}_best.pth")
+                best_model_state = fold_model.module.state_dict() if isinstance(fold_model, nn.DataParallel) else fold_model.state_dict()
+                # torch.save(fold_model.state_dict(), f"{best_models_foldername}/{model_name}_fold{fold+1}_best.pth")
                 print(f"Best model saved for fold {fold+1}")
             else:
                 non_update_count += 1
@@ -551,7 +569,7 @@ def train_vgg16_with_CV(
                     break
             
             if save_result:
-                with open(f"results/{model_name}_cv_result.csv", "a") as f:
+                with open(f"{result_foldername}/{model_name}_cv_result.csv", "a") as f:
                     f.write(f"{fold+1},{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f},{current_lr}\n")
         
         # Store fold results
@@ -579,17 +597,18 @@ def train_vgg16_with_CV(
     # Save CV summary
     if save_result:
         cv_summary = pd.DataFrame(fold_results)
-        cv_summary.to_csv(f"results/{model_name}_cv_summary.csv", index=False)
+        cv_summary.to_csv(f"{result_foldername}/{model_name}_cv_summary.csv", index=False)
         
-        with open(f"results/{model_name}_cv_stats.txt", "w") as f:
+        with open(f"{result_foldername}/{model_name}_cv_stats.txt", "w") as f:
             f.write(f"{n_folds}-Fold Cross-Validation Results\n")
             f.write(f"Mean Accuracy: {mean_accuracy:.2f}%\n")
             f.write(f"Standard Deviation: {std_accuracy:.2f}%\n")
             f.write(f"Min Accuracy: {min(val_accuracies):.2f}%\n")
             f.write(f"Max Accuracy: {max(val_accuracies):.2f}%\n")
     
+    torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
     # Return the best model path
-    return f"best_models/{model_name}_fold{fold+1}_best.pth"
+    return f"{best_models_foldername}/{model_name}_best.pth"
     
 
 
@@ -600,6 +619,7 @@ def test_vgg16(model_path,
                positive_class: int = 1, 
                save_result=False, 
                verbose=False,
+               result_foldername='results'
                ):
     """
     Loads a trained VGG16 model from a .pth file and tests it on the test set.
@@ -614,11 +634,11 @@ def test_vgg16(model_path,
         test_accuracy, dict with keys 'tp','fp','tn','fn' mapping to lists of sample indices
     """
 
-    if not os.path.exists(f"results/classification_reports"):
-        os.makedirs(f"results/classification_reports")
+    if not os.path.exists(f"{result_foldername}/classification_reports"):
+        os.makedirs(f"{result_foldername}/classification_reports")
 
-    if not os.path.exists(f"results/confusion_matrices"):
-        os.makedirs(f"results/confusion_matrices")
+    if not os.path.exists(f"{result_foldername}/confusion_matrices"):
+        os.makedirs(f"{result_foldername}/confusion_matrices")
 
     model = VGG16(num_classes=test_data.get_num_classes()).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -731,13 +751,13 @@ def test_vgg16(model_path,
     }
 
     if save_result:
-        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+        with open(f"{result_foldername}/{experiment_name}_test_result.json", "w") as f:
             json.dump(test_result, f)
 
         # Save classification report with proper labels
         df_classification_report = pd.DataFrame(classi_report).T
         df_classification_report.index.name = 'Class'
-        df_classification_report.to_csv(f"results/classification_reports/{experiment_name}_classification_report.csv")
+        df_classification_report.to_csv(f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
 
         # Save confusion matrix with proper labels
         df_confusion_matrix = pd.DataFrame(
@@ -747,7 +767,7 @@ def test_vgg16(model_path,
         )
         df_confusion_matrix.index.name = 'True Label'
         df_confusion_matrix.columns.name = 'Predicted Label'
-        df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+        df_confusion_matrix.to_csv(f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_result
 
@@ -760,7 +780,7 @@ def test_vgg16(model_path,
 #     test_data = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="dataset_infos/test_data_20classes.json")
 
 #     test_vgg16(
-#     model_path="results/best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
+#     model_path="{result_foldername}best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
 #     experiment_name="vgg16_classification_report_debug1",
 #     test_data=test_data,
 #     device=device,
@@ -769,7 +789,7 @@ def test_vgg16(model_path,
 #     )
 
 #     test_vgg16(
-#     model_path="results/best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
+#     model_path="{result_foldername}best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
 #     experiment_name="vgg16_classification_report_debug2",
 #     test_data=test_data,
 #     device=device,
@@ -778,7 +798,7 @@ def test_vgg16(model_path,
 #     )
 
     # test_resnet18(
-    #     model_path="results/best_models/resnet18_baseline_20_categories_0.0001lr_best.pth",
+    #     model_path="{result_foldername}best_models/resnet18_baseline_20_categories_0.0001lr_best.pth",
     #     experiment_name="resnet18_classification_report_debug",
     #     test_data=test_data,
     #     device=device,

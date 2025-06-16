@@ -46,7 +46,8 @@ def train_protopnet(
         base_architecture='vgg16',
         class_specific=True,
         get_full_results=True,
-        num_workers=4
+        num_workers=4,
+        result_foldername='results'
 ):
     """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
 
@@ -67,10 +68,13 @@ def train_protopnet(
     Returns the path to the best model saved on validation accuracy.
     """
 
-    if not os.path.exists("best_models"):
-        os.makedirs("best_models")
-    if not os.path.exists("results"):
-        os.makedirs("results")
+    if not os.path.exists("/var/scratch/yyg760/best_models"):
+        os.makedirs("/var/scratch/yyg760/best_models")
+
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
+
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     num_classes = train_data.get_num_classes()
 
@@ -116,13 +120,15 @@ def train_protopnet(
 
     # CSV header
     if save_result:
-        with open(f"results/{model_name}_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
             f.write("Epoch,Mode,Time,Cross Entropy,Cluster,Separation,Avg Cluster,Accuracy,L1,P Avg Pair Dist,Learning Rate\n")
 
     best_accuracy = 0.0
+    best_epoch = 0
     current_lr = learning_rate
-    non_update = 0
-    lr_inc_count = 0
+    epochs_without_improvement = 0
+    lr_adjustments_made = 0
+    best_model_state = None
 
     print("Starting ProtoPNet training…")
     for epoch in range(num_epochs):
@@ -142,7 +148,7 @@ def train_protopnet(
 
         # ---- CSV logging for training ----
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                 f.write(f"{epoch+1},train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},{learning_rate}\n")
 
         # ---- Validation ----
@@ -154,40 +160,53 @@ def train_protopnet(
         
         # ---- CSV logging for validation ----
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                 f.write(f"{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},{learning_rate}\n")
 
 
         # ---- Early-stopping & LR schedule ----
-        if val_accuracy - best_accuracy > 0.01:
+        if val_accuracy > best_accuracy:
             print("Model improved → saving")
             best_accuracy = val_accuracy
-            non_update = 0
-            torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
-            print(f"Best model saved for epoch {epoch+1}")
+            best_epoch = epoch + 1
+            epochs_without_improvement = 0
+            
+            # Save best model based on validation accuracy
+            best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            # torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+            print(f"Best model saved for epoch {epoch+1} with accuracy {val_accuracy:.4f}")
         else:
-            non_update += 1
-            print(f"No improvement for {non_update} epochs")
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs (best: {best_accuracy:.4f} at epoch {best_epoch})")
 
-        if non_update >= early_stopping_patience:
-            if lr_inc_count < lr_adjustment_patience:
+        if epochs_without_improvement >= early_stopping_patience:
+            if lr_adjustments_made < lr_adjustment_patience:
                 if lr_adjustment_mode == 'increase':
                     current_lr += lr_adjustment_rate
                 elif lr_adjustment_mode == 'decrease':
                     current_lr -= lr_adjustment_rate
-                learning_rate = current_lr
+                
+                # Update optimizer learning rate
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = current_lr
-                lr_inc_count += 1
-                non_update = 0
-                print(f"Learning-rate increased to {current_lr}")
+                lr_adjustments_made += 1
+                epochs_without_improvement = 0
+                print(f"Learning-rate adjusted to {current_lr} due to no improvement for {epochs_without_improvement} epochs (adjustment {lr_adjustments_made}/{lr_adjustment_patience})")
+                print(f"Continuing training with new LR. Best model remains from epoch {best_epoch} with accuracy {best_accuracy:.4f}")
             else:
-                print("Early stopping triggered at epoch {epoch+1}")
+                print(f"Early stopping triggered at epoch {epoch+1}")
+                print(f"Maximum LR adjustments ({lr_adjustment_patience}) reached")
+                print(f"Final best model: epoch {best_epoch} with accuracy {best_accuracy:.4f}")
                 break
 
+    print(f"Best model saved from epoch {best_epoch} with validation accuracy {best_accuracy:.4f}")
+
+    if best_model_state is not None:
+        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        print(f"Final best model confirmed saved: {model_name}_best.pth")
 
     print("Training complete!")
-    return f"best_models/{model_name}_best.pth"
+    return f"{best_models_foldername}/{model_name}_best.pth"
 
 
 def test_protopnet(model_path, 
@@ -201,13 +220,14 @@ def test_protopnet(model_path,
                    save_result=False, 
                    verbose=False,
                    use_l1_mask=False,
-                   coefs=None
+                   coefs=None,
+                   result_foldername='results'
                    ):
     
     """Test a saved ProtoPNet model on held-out data (mirrors VGG16 test)."""
 
-    if not os.path.exists("results"):
-        os.makedirs("results")
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     num_classes = test_data.get_num_classes()
     prototype_shape = (num_classes*num_prototypes, 512, 1, 1)
@@ -375,14 +395,14 @@ def test_protopnet(model_path,
     }
 
     if save_result:
-        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+        with open(f"{result_foldername}/{experiment_name}_test_result.json", "w") as f:
             json.dump(results, f, indent=2)
         pd.DataFrame(class_report).T.to_csv(
-            f"results/classification_reports/{experiment_name}_classification_report.csv")
+            f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
         pd.DataFrame(conf_matrix,
                      index=list(idx_to_label.values()),
                      columns=list(idx_to_label.values())).to_csv(
-                         f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+                         f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
     return results
 
 

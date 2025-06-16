@@ -19,7 +19,12 @@ import json
 
 import torch.nn as nn
 
+from collections import OrderedDict
+from utils import set_seed, label_to_idx
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+set_seed(42)
 
 class BasicBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
@@ -102,7 +107,8 @@ def train_resnet18(
         save_result=False,
         early_stopping_patience=10,
         lr_adjustment_patience=5,
-        num_workers=4
+        num_workers=0,
+        result_foldername='results'
 ):
     """
     Train ResNet18 on provided train/val splits (no cross-validation).
@@ -126,16 +132,23 @@ def train_resnet18(
     Returns the filepath of the best model saved on validation accuracy.
     """
 
-    if not os.path.exists("best_models"):
-        os.makedirs("best_models")
+    if not os.path.exists("/var/scratch/yyg760/best_models"):
+        os.makedirs("/var/scratch/yyg760/best_models")
+
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
     
-    if not os.path.exists("results"):
-        os.makedirs("results")
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     
-    model = ResNet18(num_classes=train_data.get_num_classes()).to(device)
+    # Get the number of classes from the label mapping
+    num_classes = len(label_to_idx)
+    print(f"Initializing model with {num_classes} classes")
+    print(f"Label to index mapping: {label_to_idx}")
+    
+    model = ResNet18(num_classes=num_classes).to(device)
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs for training")
         model = torch.nn.DataParallel(model)
@@ -163,13 +176,15 @@ def train_resnet18(
         )
 
     if save_result:
-        with open(f"results/{model_name}_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
              f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     best_accuracy = 0.0
     current_lr = learning_rate
-    non_update_count = 0
-    lr_increase_count = 0
+    epochs_without_improvement = 0
+    best_epoch = 0
+    lr_adjustments_made = 0
+    best_model_state = None
 
     print("Starting Training – ResNet18")
     for epoch in range(num_epochs):
@@ -231,21 +246,25 @@ def train_resnet18(
         print(f"Validation Loss: {val_loss_avg:.4f}")
 
         # Early stopping & LR scheduling 
-        if val_acc - best_accuracy > 0.01:
+        if val_acc > best_accuracy:
             print("Model performance improved")
             best_accuracy = val_acc
-            non_update_count = 0
-            torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
-            print(f"Saved best model to best_models/{model_name}_best.pth")
+            best_epoch = epoch + 1
+            epochs_without_improvement = 0
+
+            # Save the best model immediately
+            best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            # torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+            print(f"Best model saved for epoch {epoch+1} with accuracy {val_acc:.4f}")
         else:
-            non_update_count += 1
-            print(f"Model performance did not improve for {non_update_count} times")
+            epochs_without_improvement += 1
+            print(f"Model performance did not improve for {epochs_without_improvement} times")
 
         # Increase learning rate if validation accuracy is not improving
         # Increase learning rate every 10 epochs 5 times in total. 
         # After 5 times, if the model still does not improve, stop training.
-        if non_update_count >= early_stopping_patience:
-            if lr_increase_count < lr_adjustment_patience:
+        if epochs_without_improvement >= early_stopping_patience:
+            if lr_adjustments_made < lr_adjustment_patience:
                 if lr_adjustment_mode == 'increase':
                     learning_rate += lr_adjustment_rate
                 elif lr_adjustment_mode == 'decrease':
@@ -253,8 +272,8 @@ def train_resnet18(
                 current_lr = learning_rate
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = learning_rate
-                lr_increase_count += 1
-                non_update_count = 0
+                lr_adjustments_made += 1
+                epochs_without_improvement = 0
                 print(f"Learning rate increased to {learning_rate}")
             else:
                 print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
@@ -263,12 +282,18 @@ def train_resnet18(
         # Calculate time spent for one epoch and save the result
         time_epoch_spent = train_time_spent + val_time_spent
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                 f.write(f"{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{time_epoch_spent:.2f},{current_lr}\n")
 
     # End of training
     print("Training complete!")
-    return f"best_models/{model_name}_best.pth"
+    print(f"Best model saved from epoch {best_epoch} with validation accuracy {best_accuracy:.4f}")
+
+    if best_model_state is not None:
+        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        print(f"Final best model confirmed saved: {model_name}_best.pth")
+
+    return f"{best_models_foldername}/{model_name}_best.pth"
 
 
 def train_resnet18_with_CV(
@@ -285,7 +310,8 @@ def train_resnet18_with_CV(
         early_stopping_patience=10,
         lr_adjustment_patience=5,
         random_state=42,
-        num_workers=4
+        num_workers=4,
+        result_foldername='results'
 ):
     """
     Trains a ResNet18 model with K-Fold Cross-Validation on the training set and validates it on the validation set.
@@ -308,11 +334,13 @@ def train_resnet18_with_CV(
         num_workers: Number of workers for DataLoader
     """
 
-    if not os.path.exists(f"best_models"):
-        os.makedirs(f"best_models")
+    if not os.path.exists(f"/var/scratch/yyg760/best_models"):
+        os.makedirs(f"/var/scratch/yyg760/best_models")
+
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
     
-    if not os.path.exists(f"results"):
-        os.makedirs(f"results")
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -320,7 +348,7 @@ def train_resnet18_with_CV(
     print(f"Starting Training with {n_folds}-fold Cross-Validation.\nModel: ResNet18 baseline")
 
     if save_result:
-        with open(f"results/{model_name}_cv_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_cv_result.csv", "w") as f:
             f.write("Fold,Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     
@@ -363,6 +391,7 @@ def train_resnet18_with_CV(
         current_lr = learning_rate
         non_update = 0
         lr_inc_count = 0
+        best_model_state = None
 
         for epoch in range(num_epochs):
             print(f"Fold {fold+1} — Epoch {epoch+1}/{num_epochs}")
@@ -449,8 +478,10 @@ def train_resnet18_with_CV(
                 print("Model improved")
                 best_val_accuracy = val_acc
                 non_update = 0
-                torch.save(fold_model.state_dict(), f"best_models/{model_name}_fold{fold+1}_best.pth")
-                print(f"Saved best model to best_models/{model_name}_fold{fold+1}_best.pth")
+                best_model_state = fold_model.module.state_dict() if isinstance(fold_model, nn.DataParallel) else fold_model.state_dict()
+
+                # torch.save(fold_model.state_dict(), f"{best_models_foldername}/{model_name}_fold{fold+1}_best.pth")
+                print(f"Saved best model to {best_models_foldername}/{model_name}_fold{fold+1}_best.pth")
             else:
                 non_update += 1
                 print(f"Model performance did not improve for {non_update} times")
@@ -474,7 +505,7 @@ def train_resnet18_with_CV(
             # Calculate time spent for one epoch and save the result
             time_epoch_spent = train_time_spent + val_time_spent
             if save_result:
-                with open(f"results/{model_name}_cv_result.csv", "a") as f:
+                with open(f"{result_foldername}/{model_name}_cv_result.csv", "a") as f:
                     f.write(f"{fold+1},{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{time_epoch_spent:.2f},{current_lr}\n")
 
         fold_results.append({'fold': fold+1, 'best_val_accuracy': best_val_accuracy, 'model_path': f"best_models/{model_name}_fold{fold+1}_best.pth"})
@@ -488,16 +519,18 @@ def train_resnet18_with_CV(
     print(f"Mean {np.mean(val_accs):.2f}% ± {np.std(val_accs):.2f}%")
 
     if save_result:
-        pd.DataFrame(fold_results).to_csv(f"results/{model_name}_cv_summary.csv", index=False)
+        pd.DataFrame(fold_results).to_csv(f"{result_foldername}/{model_name}_cv_summary.csv", index=False)
 
-        with open(f"results/{model_name}_cv_stats.txt", "w") as f:
+        with open(f"{result_foldername}/{model_name}_cv_stats.txt", "w") as f:
             f.write(f"{n_folds}-Fold Cross-Validation Results\n")
             f.write(f"Mean Accuracy: {np.mean(val_accs):.2f}%\n")
             f.write(f"Standard Deviation: {np.std(val_accs):.2f}%\n")
             f.write(f"Min Accuracy: {min(val_accs):.2f}%\n")
             f.write(f"Max Accuracy: {max(val_accs):.2f}%\n")
 
-    return "best_models/{model_name}_fold{fold+1}_best.pth"
+    torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+
+    return f"{best_models_foldername}/{model_name}_best.pth"
 
 
 def test_resnet18(model_path, 
@@ -507,6 +540,7 @@ def test_resnet18(model_path,
                   positive_class: int = 1, 
                   save_result=False, 
                   verbose=False,
+                  result_foldername='results'
                   ):
     """
     Loads a trained ResNet18 model from a .pth file and tests it on the test set.
@@ -520,16 +554,35 @@ def test_resnet18(model_path,
     Returns
         test_accuracy, dict with keys 'tp','fp','tn','fn' mapping to lists of sample indices
     """
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
-    if not os.path.exists(f"results/classification_reports"):
-        os.makedirs(f"results/classification_reports")
+    if not os.path.exists(f"{result_foldername}/classification_reports"):
+        os.makedirs(f"{result_foldername}/classification_reports")
 
-    if not os.path.exists(f"results/confusion_matrices"):
-        os.makedirs(f"results/confusion_matrices")
+    if not os.path.exists(f"{result_foldername}/confusion_matrices"):
+        os.makedirs(f"{result_foldername}/confusion_matrices")
 
     model = ResNet18(num_classes=test_data.get_num_classes()).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    test_loader = DataLoader(test_data, shuffle=False)
+    state_dict = torch.load(model_path, map_location=device)
+
+    set_seed(42)
+
+
+    # Remove 'module.' prefix if it exists
+    module_replaced = False
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k.startswith('module.'):
+           new_state_dict[k.replace('module.', '')] = v
+           module_replaced = True
+
+    if module_replaced:
+        model.load_state_dict(new_state_dict)
+    else:
+        model.load_state_dict(state_dict)
+
+    test_loader = DataLoader(test_data)
     model.eval()
 
     test_correct = 0
@@ -544,11 +597,11 @@ def test_resnet18(model_path,
     confusion_matrix_for_each_individual = {}
 
     print("Starting model testing...")
-    label_names_idx = test_data.get_dataset_labels()
-    print(f"Label names and indices: {label_names_idx}")
+    label_to_idx = test_data.get_dataset_labels()
+    print(f"Label names and indices: {label_to_idx}")
     
     # Create reverse mapping from index to name
-    idx_to_label = {idx: name for name, idx in label_names_idx.items()}
+    idx_to_label = {idx: name for name, idx in label_to_idx.items()}
     print(f"Index to label mapping: {idx_to_label}")
 
     with torch.no_grad():
@@ -619,11 +672,8 @@ def test_resnet18(model_path,
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    # Get unique labels in the correct order
-    unique_labels = list(idx_to_label.values())
-    
-    classi_report = classification_report(y_true, y_pred, labels=unique_labels, output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_labels)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
 
     print("\nClassification Report:")
     print(classi_report)
@@ -635,7 +685,7 @@ def test_resnet18(model_path,
     test_result = {
         'experiment_name': experiment_name,
         'pth_filepath': model_path,
-        'label_names_idx': label_names_idx,
+        'label_to_idx': label_to_idx,
         'idx_to_label': idx_to_label,
         'test_accuracy': test_accuracy,
         'confusion_matrix_for_each_individual': confusion_matrix_for_each_individual,
@@ -643,13 +693,13 @@ def test_resnet18(model_path,
     }
 
     if save_result:
-        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+        with open(f"{result_foldername}/{experiment_name}_test_result.json", "w") as f:
             json.dump(test_result, f)
             
         df_classification_report = pd.DataFrame(classi_report).T
         # The classification report already has proper row names, just ensure they're clean
         df_classification_report.index.name = 'Class'
-        df_classification_report.to_csv(f"results/classification_reports/{experiment_name}_classification_report.csv")
+        df_classification_report.to_csv(f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
 
         # For confusion matrix, add proper labels
         df_confusion_matrix = pd.DataFrame(conf_matrix)
@@ -659,118 +709,12 @@ def test_resnet18(model_path,
         df_confusion_matrix.columns = class_names
         df_confusion_matrix.index.name = 'True Label'
         df_confusion_matrix.columns.name = 'Predicted Label'
-        df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+        df_confusion_matrix.to_csv(f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_result
         
-# if __name__ == "__main__":
-#     # Create results directory if it doesn't exist
-#     if not os.path.exists('results'):
-#         os.makedirs('results')
-    
-#     # Memory optimization settings
-#     if torch.cuda.is_available():
-#         torch.cuda.empty_cache()
-#         # Enable memory efficient attention if available
-#         torch.backends.cudnn.benchmark = True
-#         # Set memory fraction to prevent over-allocation
-#         torch.cuda.set_per_process_memory_fraction(0.9)
-    
-#     num_epochs = 100
-#     num_folds = 3
-#     learning_rate = 0.0001
-#     lr_adjustment_rate = 0.0001
-#     batch_size = 4
-#     validation_size = 0.15
-#     prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
-#     early_stopping_patience = 10
-#     lr_adjustment_patience = 5
-
-#     experiment_name1 = "resnet18_newdata-10classes-0.0001lr-testrun"
-#     experiment_name2 = "resnet18_newdata-10classes-0.0001lr-CV-testrun"
-
-#     prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
-
-#     classes = prechosen_categories_csv['Category Name'].tolist()
-#     model_name1 = experiment_name1
-#     model_name2 = experiment_name2
-
-#     # Initialize model  
-#     num_classes = len(classes)
-#     model1 = ResNet18(num_classes=num_classes).to(device)
-#     model2 = ResNet18(num_classes=num_classes).to(device)
-#     # print(model)
-
-#     ### Load data - manually
-
-#     train_data, val_data = prepare_data_manually(*classes, 
-#                                         num_instances=10, 
-#                                         split=True, 
-#                                         split_size=0.15,
-#                                         transform="resnet18", 
-#                                         target_transform="integer")
-
-#     test_data = prepare_data_manually(*classes, 
-#                                         num_instances=10, 
-#                                         for_test=True,
-#                                         transform="resnet18", 
-#                                         target_transform="integer")
-    
-#     ### Load data - pass the file path string, not the DataFrame
-#     # train_data = prepare_data_from_preselected_categories(
-#     #     prechosen_categories_csv_path, 
-#     #     'train', 
-#     #     split_val=False,
-#     #     transform="resnet18",  # This will apply resnet18 transforms
-#     #     target_transform="integer"  # This will convert labels to integers
-#     # )
-
-#     # test_data = prepare_data_from_preselected_categories(
-#     #     prechosen_categories_csv_path, 
-#     #     'test',
-#     #     transform="resnet18",  # This will apply resnet18 transforms
-#     #     target_transform="integer"  # This will convert labels to integers
-#     # )
-
-
-#     # Clean data
-#     train_data, val_data, test_data = eliminate_leaked_data(experiment_name1, train_data, val_data, test_data, verbose=True, save_result=True)
-
-
-#     ### Train normally, without CV
-#     best_model_path1 = train_resnet18(model1, 
-#                                    train_data, 
-#                                    val_data, 
-#                                    model_name1, 
-#                                    device, 
-#                                    num_epochs=num_epochs, 
-#                                    learning_rate=learning_rate,
-#                                    lr_adjustment_rate=lr_adjustment_rate,
-#                                    batch_size=batch_size, 
-#                                    early_stopping_patience=early_stopping_patience,
-#                                    lr_adjustment_patience=lr_adjustment_patience)
-    
-#     test_resnet18(best_model_path1, 
-#                experiment_name1, 
-#                test_data, 
-#                device, 
-#                num_classes, 
-#                save_result=True,
-#                verbose=False)
-
-
-#     ### Train with CV
-#     # best_model_path2 = train_resnet18_with_CV(model2, 
-#     #                                        train_data, 
-#     #                                        num_folds, 
-#     #                                        num_epochs, 
-#     #                                        learning_rate, 
-#     #                                        model_name2, 
-#     #                                        device, 
-#     #                                        batch_size, 
-#     #                                        lr_adjustment_rate=lr_adjustment_rate,
-#     #                                        save_result=True,
-#     #                                        early_stopping_patience=early_stopping_patience,
-#     #                                        lr_adjustment_patience=lr_adjustment_patience)
-    
-#     # test_resnet18(best_model_path2, test_data, device, num_classes)
+if __name__ == "__main__":
+   model_path = "resnet18_baseline_20_categories_0.0001lr_best.pth"
+   experiment_name = "resnet18_testrun"
+   test_data = MSCOCOCustomDataset(load_from_json='dataset_infos/singleLabel_test_data_20classes.json')
+   test_resnet18(model_path, experiment_name, test_data, device, save_result=True, verbose=False)

@@ -82,7 +82,8 @@ def train_simpleCNN(
         lr_adjustment_patience = 5,
         save_result = False,
         early_stopping_patience = 10,
-        num_workers = 0
+        num_workers = 0,
+        result_foldername='results'
 ):
     
     """
@@ -105,11 +106,13 @@ def train_simpleCNN(
         early_stopping_patience: Patience for early stopping
         num_workers: Number of workers for data loading
     """
-    if not os.path.exists(f"best_models"):
-        os.makedirs(f"best_models")
+    if not os.path.exists(f"/var/scratch/yyg760/best_models"):
+        os.makedirs(f"/var/scratch/yyg760/best_models")
 
-    if not os.path.exists(f"results"):
-        os.makedirs(f"results")
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
+
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     num_classes = train_data.get_num_classes()
     model = SimpleCNN(num_classes=num_classes, num_conv_layers=num_conv_layers).to(device)
@@ -146,13 +149,15 @@ def train_simpleCNN(
     print("Starting Training.\nModel: SimpleCNN with No Prototypes")
 
     if save_result:
-        with open(f"results/{model_name}_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
             f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
 
     best_accuracy = 0
     current_lr = learning_rate
-    non_update_count = 0
-    lr_increase_count = 0
+    epochs_without_improvement = 0
+    lr_adjustments_made = 0
+    best_epoch = 0
+    best_model_state = None
 
     train_correct = 0
     train_total = 0
@@ -233,24 +238,26 @@ def train_simpleCNN(
 
             ### Early Stopping & LR scheduling
             # Use validation accuracy for early stopping, then save and dynamically update the best model 
-            if val_accuracy - best_accuracy > 0.01:
+            if val_accuracy > best_accuracy:
                 print("Model performance improved")
                 best_accuracy = val_accuracy
-                non_update_count = 0
+                best_epoch = epoch + 1
+                epochs_without_improvement = 0
 
                 # Save best model based on validation accuracy
-                torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
-                print(f"Model saved to best_models/{model_name}_best.pth")
+                best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()  # Create a copy
+                # torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+                print(f"Model saved to {best_models_foldername}/{model_name}_best.pth")
 
             else:
-                non_update_count += 1
-                print(f"Model performance did not improve for {non_update_count} times")
+                epochs_without_improvement += 1
+                print(f"Model performance did not improve for {epochs_without_improvement} times")
 
             # Increase learning rate if validation accuracy is not improving
             # Increase learning rate every 10 epochs 5 times in total. 
             # After 5 times, if the model still does not improve, stop training.
-            if non_update_count >= early_stopping_patience:
-                if lr_increase_count < lr_adjustment_patience:
+            if epochs_without_improvement >= early_stopping_patience:
+                if lr_adjustments_made < lr_adjustment_patience:
                     if lr_adjustment_mode == 'increase':
                         learning_rate += lr_adjustment_rate
                     elif lr_adjustment_mode == 'decrease':
@@ -259,8 +266,8 @@ def train_simpleCNN(
                     # Update optimizer learning rate
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = learning_rate
-                    lr_increase_count += 1
-                    non_update_count = 0
+                    lr_adjustments_made += 1
+                    epochs_without_improvement = 0
                     print(f"Learning rate increased to {learning_rate}")
                 else:
                     print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
@@ -269,12 +276,18 @@ def train_simpleCNN(
         # Calculate time spent for one epoch and save the result
         epoch_time = train_time_spent + val_time
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                 f.write(f"{epoch+1},{loss.item()},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f},{current_lr}\n")
     
     # End of training 
     print("Training Complete!")
-    return f"best_models/{model_name}_best.pth"
+    print(f"Best model saved from epoch {best_epoch} with validation accuracy {best_accuracy:.4f}")
+
+    if best_model_state is not None:
+        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        print(f"Final best model confirmed saved: {model_name}_best.pth")
+
+    return f"{best_models_foldername}/{model_name}_best.pth"
 
 def train_simpleCNN_with_CV(
         train_data,
@@ -290,7 +303,8 @@ def train_simpleCNN_with_CV(
         early_stopping_patience = 10,
         lr_adjustment_patience = 5,
         random_state = 42,
-        num_workers = 0
+        num_workers = 0,
+        result_foldername='results'
 ):
     """
     Trains a simple CNN model with cross-validation on the training set.
@@ -307,6 +321,7 @@ def test_simpleCNN(model_path,
                positive_class: int = 1, 
                save_result=False, 
                verbose=False,
+               result_foldername='results'
                ):
     """
     Loads a trained SimpleCNN model from a .pth file and tests it on the test set.
@@ -320,11 +335,11 @@ def test_simpleCNN(model_path,
         test_accuracy, dict with keys 'tp','fp','tn','fn' mapping to lists of sample indices
     """
 
-    if not os.path.exists(f"results/classification_reports"):
-        os.makedirs(f"results/classification_reports")
+    if not os.path.exists(f"{result_foldername}/classification_reports"):
+        os.makedirs(f"{result_foldername}/classification_reports")
 
-    if not os.path.exists(f"results/confusion_matrices"):
-        os.makedirs(f"results/confusion_matrices")
+    if not os.path.exists(f"{result_foldername}/confusion_matrices"):
+        os.makedirs(f"{result_foldername}/confusion_matrices")
 
     # Load state dict to analyze architecture
     state_dict = torch.load(model_path)
@@ -449,14 +464,14 @@ def test_simpleCNN(model_path,
     }
 
     if save_result:
-        with open(f"results/{experiment_name}_test_result.json", "w") as f:
+        with open(f"{result_foldername}/{experiment_name}_test_result.json", "w") as f:
             json.dump(test_result, f)
             
 
         df_classification_report = pd.DataFrame(classi_report).T
         # The classification report already has proper row names, just ensure they're clean
         df_classification_report.index.name = 'Class'
-        df_classification_report.to_csv(f"results/classification_reports/{experiment_name}_classification_report.csv")
+        df_classification_report.to_csv(f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
 
         # For confusion matrix, add proper labels
         df_confusion_matrix = pd.DataFrame(conf_matrix)
@@ -466,7 +481,7 @@ def test_simpleCNN(model_path,
         df_confusion_matrix.columns = class_names
         df_confusion_matrix.index.name = 'True Label'
         df_confusion_matrix.columns.name = 'Predicted Label'
-        df_confusion_matrix.to_csv(f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+        df_confusion_matrix.to_csv(f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_result  
 

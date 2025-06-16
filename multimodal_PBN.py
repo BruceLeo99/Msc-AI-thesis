@@ -146,7 +146,8 @@ def train_multimodal_PBN(
         early_stopping_patience=10,
         class_specific=True,
         get_full_results=True,
-        num_workers=4
+        num_workers=4,
+        result_foldername='results'
 ):
     """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
 
@@ -167,10 +168,13 @@ def train_multimodal_PBN(
     Returns the path to the best model saved on validation accuracy.
     """
 
-    if not os.path.exists("best_models"):
-        os.makedirs("best_models")
-    if not os.path.exists("results"):
-        os.makedirs("results")
+    if not os.path.exists("/var/scratch/yyg760/best_models"):
+        os.makedirs("/var/scratch/yyg760/best_models")
+
+    best_models_foldername = f"/var/scratch/yyg760/best_models"
+
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     num_classes = train_data.get_num_classes()
 
@@ -213,13 +217,15 @@ def train_multimodal_PBN(
 
     # CSV header
     if save_result:
-        with open(f"results/{model_name}_result.csv", "w") as f:
+        with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
             f.write("Epoch,Mode,Time,Cross Entropy,Cluster,Separation,Avg Cluster,Accuracy,L1,P Avg Pair Dist,Learning Rate\n")
 
     best_accuracy = 0.0
+    best_epoch = 0
     current_lr = learning_rate
-    non_update = 0
-    lr_inc_count = 0
+    epochs_without_improvement = 0
+    lr_adjustments_made = 0
+    best_model_state = None
 
     print("Starting ProtoPNet training…")
     for epoch in range(num_epochs):
@@ -239,8 +245,8 @@ def train_multimodal_PBN(
 
         # ---- CSV logging for training ----
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},{learning_rate}\n")
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
+                f.write(f"{epoch+1},train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},{current_lr}\n")
 
         # ---- Validation ----
         mode,running_time, val_loss, cluster_cost, separation_cost, avg_cluster_cost, val_accuracy, l1, p_avg_pair_dist = \
@@ -251,40 +257,57 @@ def train_multimodal_PBN(
         
         # ---- CSV logging for validation ----
         if save_result:
-            with open(f"results/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},{learning_rate}\n")
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
+                f.write(f"{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},{current_lr}\n")
 
-
-        # ---- Early-stopping & LR schedule ----
-        if val_accuracy - best_accuracy > 0.01:
-            print("Model improved → saving")
+        # ---- Model saving logic (fixed) ----
+        if val_accuracy > best_accuracy:  # Changed from > 0.01 improvement to any improvement
+            print(f"Model improved: {best_accuracy:.4f} → {val_accuracy:.4f} (epoch {epoch+1})")
             best_accuracy = val_accuracy
-            non_update = 0
-            torch.save(model.state_dict(), f"best_models/{model_name}_best.pth")
-            print(f"Best model saved for epoch {epoch+1}")
+            best_epoch = epoch + 1
+            epochs_without_improvement = 0
+            
+            # Save best model based on validation accuracy
+            best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            # torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+            print(f"Best model saved for epoch {epoch+1} with accuracy {val_accuracy:.4f}")
         else:
-            non_update += 1
-            print(f"No improvement for {non_update} epochs")
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs (best: {best_accuracy:.4f} at epoch {best_epoch})")
 
-        if non_update >= early_stopping_patience:
-            if lr_inc_count < lr_adjustment_patience:
+        # ---- Learning rate adjustment logic ----
+        if epochs_without_improvement >= early_stopping_patience:
+            if lr_adjustments_made < lr_adjustment_patience:
                 if lr_adjustment_mode == 'increase':
                     current_lr += lr_adjustment_rate
+
                 elif lr_adjustment_mode == 'decrease':
                     current_lr -= lr_adjustment_rate
-                learning_rate = current_lr
+                
+                # Update optimizer learning rate
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = current_lr
-                lr_inc_count += 1
-                non_update = 0
-                print(f"Learning-rate increased to {current_lr}")
+                
+                lr_adjustments_made += 1
+                epochs_without_improvement = 0  # Reset patience for this LR
+                
+                print(f"Learning rate adjusted to {current_lr} due to no improvement for {epochs_without_improvement} epochs (adjustment {lr_adjustments_made}/{lr_adjustment_patience})")
+                print(f"Continuing training with new LR. Best model remains from epoch {best_epoch} with accuracy {best_accuracy:.4f}")
             else:
-                print("Early stopping triggered at epoch {epoch+1}")
+                print(f"Early stopping triggered at epoch {epoch+1}")
+                print(f"Maximum LR adjustments ({lr_adjustment_patience}) reached")
+                print(f"Final best model: epoch {best_epoch} with accuracy {best_accuracy:.4f}")
                 break
 
-
     print("Training complete!")
-    return f"best_models/{model_name}_best.pth"
+    print(f"Best model saved from epoch {best_epoch} with validation accuracy {best_accuracy:.4f}")
+    
+    # Ensure the best model is saved one final time
+    if best_model_state is not None:
+        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        print(f"Final best model confirmed saved: {model_name}_best.pth")
+    
+    return f"{best_models_foldername}/{model_name}_best.pth"
 
 
 
@@ -298,13 +321,14 @@ def test_multimodal_PBN(model_path,
                    save_result=False, 
                    verbose=False,
                    use_l1_mask=False,
-                   coefs=None
-                   ):
+                   coefs=None,
+                   result_foldername='results'
+                   ):   
     
     """Test a saved ProtoPNet model on held-out data (mirrors VGG16 test)."""
 
-    if not os.path.exists("results"):
-        os.makedirs("results")
+    if not os.path.exists(result_foldername):
+        os.makedirs(result_foldername)
 
     num_classes = test_data.get_num_classes()
 
@@ -398,11 +422,15 @@ def test_multimodal_PBN(model_path,
             # Store the raw integer labels for confusion matrix
             y_true.extend(target.cpu().numpy())
             y_pred.extend(predicted.cpu().numpy())
-            
-            # Store mapping for confusion matrix visualization
-            for t, p, idx in zip(target.cpu().numpy(), predicted.cpu().numpy(), range(len(batch['label']))):
+
+            # Store mapping for confusion matrix visualization with actual image IDs
+            for idx in range(len(batch['label'])):
+                t = target[idx].item()
+                p = predicted[idx].item()
                 key = f"{t}_{p}"
-                confusion_mapping.setdefault(key, []).append(idx)
+                # Get the actual image ID for this index in the batch
+                img_id = test_data.get_image_id(i * test_loader.batch_size + idx)
+                confusion_mapping.setdefault(key, []).append(img_id)
 
             n_batches += 1
             total_cross_entropy += cross_entropy.item()
@@ -457,21 +485,21 @@ def test_multimodal_PBN(model_path,
             'confusion_mapping': confusion_mapping
         }
         
-        with open(f"results/{experiment_name}_test_results.json", "w") as f:
+        with open(f"{result_foldername}/{experiment_name}_test_results.json", "w") as f:
             json.dump(results, f, indent=2)
             
         # Save detailed reports
-        if not os.path.exists("results/classification_reports"):
-            os.makedirs("results/classification_reports")
-        if not os.path.exists("results/confusion_matrices"):
-            os.makedirs("results/confusion_matrices")
+        if not os.path.exists(f"{result_foldername}/classification_reports"):
+            os.makedirs(f"{result_foldername}/classification_reports")
+        if not os.path.exists(f"{result_foldername}/confusion_matrices"):
+            os.makedirs(f"{result_foldername}/confusion_matrices")
             
         pd.DataFrame(class_report).T.to_csv(
-            f"results/classification_reports/{experiment_name}_classification_report.csv")
+            f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
         pd.DataFrame(conf_matrix,
                     index=[idx_to_label[i] for i in range(num_classes)],
                     columns=[idx_to_label[i] for i in range(num_classes)]).to_csv(
-                        f"results/confusion_matrices/{experiment_name}_confusion_matrix.csv")
+                        f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_results
 
@@ -495,42 +523,121 @@ if __name__ == "__main__":
     early_stopping_patience = 10
     lr_adjustment_patience = 5
     num_prototypes = 10
-
+    result_foldername = 'results'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     train_20cls_json = "dataset_infos/singleLabel_train_data_20classes.json"
     val_20cls_json = "dataset_infos/singleLabel_val_data_20classes.json"
     test_20cls_json = "dataset_infos/singleLabel_test_data_20classes.json"
 
-    train_data = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=train_20cls_json)
-    val_data = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=val_20cls_json)
-    test_data = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=test_20cls_json)
+    train_30cls_json = "dataset_infos/singleLabel_train_data_30classes.json"
+    val_30cls_json = "dataset_infos/singleLabel_val_data_30classes.json"
+    test_30cls_json = "dataset_infos/singleLabel_test_data_30classes.json"
 
-    model_name = "mPBNTestRun"
+    train_data_20cls = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=train_20cls_json)
+    val_data_20cls = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=val_20cls_json)
+    test_data_20cls = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=test_20cls_json)
 
-    experiment_path = train_multimodal_PBN(train_data, 
-                                           val_data, 
-                                           model_name, 
-                                           device, 
-                                           num_epochs=num_epochs, 
-                                           learning_rate=learning_rate, 
-                                           batch_size=batch_size, 
-                                           lr_adjustment_rate=lr_adjustment_rate, 
-                                           save_result=save_result, 
-                                           early_stopping_patience=early_stopping_patience, 
-                                           lr_adjustment_patience=lr_adjustment_patience,
-                                           class_specific=class_specific,
-                                           get_full_results=get_full_results,
-                                           num_workers=4)
+    train_data_30cls = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=train_30cls_json)
+    val_data_30cls = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=val_30cls_json)
+    test_data_30cls = MSCOCOCustomDataset(load_from_local=True, load_captions=True, load_from_json=test_30cls_json)
+
+
+    # experiment_path = train_multimodal_PBN(train_data_20cls, 
+    #                                        val_data_20cls, 
+    #                                        model_name, 
+    #                                        device, 
+    #                                        num_epochs=num_epochs, 
+    #                                        learning_rate=learning_rate, 
+    #                                        batch_size=batch_size, 
+    #                                        lr_adjustment_rate=lr_adjustment_rate, 
+    #                                        save_result=save_result, 
+    #                                        early_stopping_patience=early_stopping_patience, 
+    #                                        lr_adjustment_patience=lr_adjustment_patience,
+    #                                        class_specific=class_specific,
+    #                                        get_full_results=get_full_results,
+    #                                        num_workers=4)
 
 
     
-    test_multimodal_PBN(experiment_path, 
-                        model_name, 
-                        test_data, 
-                        device, 
-                        num_prototypes=num_prototypes,
-                        class_specific=class_specific,
-                        get_full_results=get_full_results,
-                        save_result=save_result,
-                        verbose=True)
+    # test_multimodal_PBN(experiment_path, 
+    #                     model_name, 
+    #                     test_data_20cls, 
+    #                     device, 
+    #                     num_prototypes=num_prototypes,
+    #                     class_specific=class_specific,
+    #                     get_full_results=get_full_results,
+    #                     save_result=save_result,
+    #                     verbose=True)
+
+    model_name1 = 'mPBN_20classes_10prototypes_0.0001lr'
+    model_name2 = 'mPBN_20classes_20prototypes_0.0001lr'
+    model_name3 = 'mPBN_20classes_30prototypes_0.0001lr'
+    model_name4 = 'mPBN_30classes_10prototypes_0.0001lr'
+    model_name5 = 'mPBN_30classes_20prototypes_0.0001lr'
+    model_name6 = 'mPBN_30classes_30prototypes_0.0001lr'
+
+    experiment_path_dir = 'results_mPBN1/best_models'
+
+    test_multimodal_PBN(f"{experiment_path_dir}/{model_name1}_best.pth", 
+                    model_name1, 
+                    test_data_20cls, 
+                    device, 
+                    num_prototypes=10,
+                    class_specific=class_specific,
+                    get_full_results=get_full_results,
+                    save_result=save_result,
+                    verbose=True)
+
+
+    test_multimodal_PBN(f"{experiment_path_dir}/{model_name2}_best.pth", 
+                    model_name2, 
+                    test_data_20cls, 
+                    device, 
+                    num_prototypes=20,
+                    class_specific=class_specific,
+                    get_full_results=get_full_results,
+                    save_result=save_result,
+                    verbose=True)
+    
+    test_multimodal_PBN(f"{experiment_path_dir}/{model_name3}_best.pth", 
+                    model_name3, 
+                    test_data_20cls, 
+                    device, 
+                    num_prototypes=30,
+                    class_specific=class_specific,
+                    get_full_results=get_full_results,
+                    save_result=save_result,
+                    verbose=True)
+    
+    test_multimodal_PBN(f"{experiment_path_dir}/{model_name4}_best.pth", 
+                    model_name4, 
+                    test_data_30cls, 
+                    device, 
+                    num_prototypes=10,
+                    class_specific=class_specific,
+                    get_full_results=get_full_results,
+                    save_result=save_result,
+                    verbose=True)
+    
+
+    test_multimodal_PBN(f"{experiment_path_dir}/{model_name5}_best.pth", 
+                    model_name5, 
+                    test_data_30cls, 
+                    device, 
+                    num_prototypes=20,
+                    class_specific=class_specific,
+                    get_full_results=get_full_results,
+                    save_result=save_result,
+                    verbose=True)
+    
+
+    test_multimodal_PBN(f"{experiment_path_dir}/{model_name6}_best.pth", 
+                    model_name6, 
+                    test_data_30cls, 
+                    device, 
+                    num_prototypes=30,
+                    class_specific=class_specific,
+                    get_full_results=get_full_results,
+                    save_result=save_result,
+                    verbose=True)

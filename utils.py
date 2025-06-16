@@ -3,6 +3,23 @@ import matplotlib.pyplot as plt
 import time
 import torch
 import gc
+import numpy as np
+import random
+
+import json
+
+label_to_idx = {}
+
+with open('coco/annotations/instances_train2017.json', 'r') as f:
+    category_id_list = json.load(f)['categories']
+
+# Sort categories by name to ensure consistent ordering
+sorted_categories = sorted(category_id_list, key=lambda x: x['name'])
+# Create zero-based consecutive indices
+for idx, category in enumerate(sorted_categories):
+    label_to_idx[category['name']] = idx
+
+# print(label_to_idx)
 
 def get_accuracy(df, mode):
     """
@@ -50,9 +67,10 @@ def generate_unimodal_name(df_name):
     num_classes = df_name.split("-")[3]
     num_prototypes = df_name.split("-")[-1].replace(".csv", "")
 
-    model_name = f"Unimodal PBN {encoder} {lr} {num_classes} {num_prototypes}"
+    model_name = f"PBN {encoder} {lr} {num_classes} {num_prototypes}"
 
     return model_name 
+
 
 def generate_subplot(ax, result_filename, value_type="Accuracy",row_nr=0,col_nr=0, onerow=False):
 
@@ -166,3 +184,10 @@ def print_gpu_memory_status():
             print(f"Free Memory: {total_memory - allocated_memory:.2f} GB")
     else:
         print("No GPU available")
+
+def set_seed(seed=42):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
