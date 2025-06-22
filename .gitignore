@@ -23,6 +23,9 @@ shell_scripts/
 test scripts/
 old_results/
 results_*/
+caltech-101/
+Food101/
+
 
 
 # Individual files and scripts
@@ -43,6 +46,7 @@ check_gpu_usage.py
 resnet18_model_multiGPU.py
 vgg16_model_multiGPU.py
 multimodal_PBN_explain.py
+temp.txt
 
 # Model files
 *.pth

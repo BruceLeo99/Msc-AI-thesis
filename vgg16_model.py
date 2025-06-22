@@ -724,7 +724,7 @@ def test_vgg16(model_path,
 
     # Generate classification report and confusion matrix using integer labels
     classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
+    conf_matrix = confusion_matrix(y_true, y_pred)
 
     print(f"\n{'='*60}")
     print("TEST RESULTS")

@@ -22,6 +22,9 @@ from ProtoPNet.model import construct_PPNet
 from ProtoPNet.train_and_test_PBN import train, validate
 from ProtoPNet.resnet_features import resnet18_features, resnet34_features, resnet50_features, resnet101_features, resnet152_features
 from ProtoPNet.vgg_features import vgg16_features, vgg19_features
+from ProtoPNet import settings
+from ProtoPNet import push
+from ProtoPNet.helpers import makedir
 from torchvision import transforms
 
 import pandas as pd
@@ -38,6 +41,7 @@ def train_protopnet(
         num_epochs=50,
         learning_rate=0.0001,
         batch_size=32,
+        num_out_channels=128,
         lr_adjustment_rate=0.0001,
         lr_adjustment_mode='decrease',
         lr_adjustment_patience=5,
@@ -47,25 +51,18 @@ def train_protopnet(
         class_specific=True,
         get_full_results=True,
         num_workers=4,
-        result_foldername='results'
+        result_foldername='results',
+        push_prototypes=False  
 ):
-    """Train ProtoPNet in the same logging/early-stopping style used for VGG16/ResNet.
-
+    """Train ProtoPNet following the original paper's three-stage training process using settings.py.
+    
+    This implementation uses the original ProtoPNet settings while preserving all existing 
+    variable names and function signatures for compatibility.
+    
     Args:
-        train_data: Training data
-        val_data: Validation data
-        model_name: Name of the model
-        device: Device to use for training
-        num_prototypes: Number of prototypes
-        num_epochs: Number of epochs to train
-        learning_rate: Learning rate for training
-        batch_size: Batch size for training
-        lr_adjustment_rate: Learning rate increment rate
-        lr_adjustment_mode: Mode of learning rate adjustment
-        lr_adjustment_patience: Patience for learning rate increase
-        save_result: Whether to save the result
-
-    Returns the path to the best model saved on validation accuracy.
+        push_prototypes (bool): If True, performs prototype pushing during joint training.
+                               This makes prototypes interpretable but is computationally expensive.
+                               Pushes happen at epochs defined in settings.push_epochs.
     """
 
     if not os.path.exists("/var/scratch/yyg760/best_models"):
@@ -76,9 +73,13 @@ def train_protopnet(
     if not os.path.exists(result_foldername):
         os.makedirs(result_foldername)
 
+    #_____________________________________________________________________________________________________# 
+
+    ### LOAD MODEL ###
+
     num_classes = train_data.get_num_classes()
 
-    prototype_shape = (num_classes*num_prototypes, 512, 1, 1)
+    prototype_shape = (num_classes*num_prototypes, num_out_channels, 1, 1)
 
     model = construct_PPNet(base_architecture=base_architecture, 
                             pretrained=True, 
@@ -98,9 +99,18 @@ def train_protopnet(
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+    ### END LOAD MODEL ###
+    #_____________________________________________________________________________________________________# 
+
+    ### LOAD DATA ###
+
     if num_workers == 0:
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+
+        # Push loader for prototype pushing (no normalization)
+        if push_prototypes:
+            push_loader = DataLoader(train_data, batch_size=batch_size, shuffle=False)
     else:
         train_loader = DataLoader(train_data, 
                                   batch_size=batch_size, 
@@ -117,11 +127,35 @@ def train_protopnet(
                                 pin_memory=True,
                                 prefetch_factor=2
                                 )
+        
+        # Push loader for prototype pushing (no normalization)
+        if push_prototypes:
+            push_loader = DataLoader(train_data, 
+                                    batch_size=batch_size, 
+                                    shuffle=False, 
+                                    num_workers=num_workers,
+                                    pin_memory=True,
+                                    prefetch_factor=2
+                                    )
+
+    # ADDED: Setup for prototype pushing if enabled
+    if push_prototypes:
+        img_dir = os.path.join(result_foldername, 'prototype_imgs')
+        makedir(img_dir)
+        prototype_img_filename_prefix = 'prototype-img'
+        prototype_self_act_filename_prefix = 'prototype-self-act'
+        proto_bound_boxes_filename_prefix = 'bb'
+        print("Prototype pushing enabled - prototypes will be saved to:", img_dir)
+
+    ### END LOAD DATA ###
+    #_____________________________________________________________________________________________________# 
+
+    ### SETUP MODEL HYPERPARAMS ###
 
     # CSV header
     if save_result:
         with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
-            f.write("Epoch,Mode,Time,Cross Entropy,Cluster,Separation,Avg Cluster,Accuracy,L1,P Avg Pair Dist,Learning Rate\n")
+            f.write("Stage,Epoch,Mode,Time,Cross Entropy,Cluster,Separation,Avg Cluster,Accuracy,L1,P Avg Pair Dist,Learning Rate\n")
 
     best_accuracy = 0.0
     best_epoch = 0
@@ -129,83 +163,253 @@ def train_protopnet(
     epochs_without_improvement = 0
     lr_adjustments_made = 0
     best_model_state = None
+    
+    best_stage = ""
 
-    print("Starting ProtoPNet training…")
-    for epoch in range(num_epochs):
-        print(f"Epoch {epoch+1}/{num_epochs}")
+    ### END SETUP MODEL HYPERPARAMS ###
+    #_____________________________________________________________________________________________________# 
+
+    print("Starting ProtoPNet training with original paper's three-stage process...")
+    if push_prototypes:
+        print("Prototype pushing is ENABLED - this will increase training time but provide interpretability")
+    else:
+        print("Prototype pushing is DISABLED - faster training, no interpretability")
+    
+    ### STAGE 1: WARM-UP TRAINING - Using settings.num_warm_epochs and settings.warm_optimizer_lrs ###
+    print(f"Stage 1: Warm-up training ({settings.num_warm_epochs} epochs)")
+    
+    # warm_optimizer using settings.warm_optimizer_lrs
+    warm_optimizer = optim.Adam([
+        {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers']},
+        {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs['prototype_vectors']}
+    ])
+    
+    # Freeze pretrained layers for warm-up
+    for p in model.module.features.parameters():
+        p.requires_grad = False
+
+    
+    for epoch in range(settings.num_warm_epochs):
+
+
+        print(f"Warm-up Epoch {epoch+1}/{settings.num_warm_epochs}")
 
         # Clear GPU memory before each epoch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        mode,running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
+        mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
         train(model, 
               train_loader, 
-              optimizer, 
+              warm_optimizer,  # Using warm_optimizer with settings
               class_specific=class_specific,
-              get_full_results=get_full_results)
+              get_full_results=get_full_results,
+              coefs=settings.coefs) 
         
-
-        # ---- CSV logging for training ----
         if save_result:
             with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},{learning_rate}\n")
+                f.write(f"warm,{epoch+1},train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},{settings.warm_optimizer_lrs['add_on_layers']}\n")
 
-        # ---- Validation ----
-        mode,running_time, val_loss, cluster_cost, separation_cost, avg_cluster_cost, val_accuracy, l1, p_avg_pair_dist = \
+        # Validation
+        mode, running_time, val_loss, cluster_cost, separation_cost, avg_cluster_cost, val_accuracy, l1, p_avg_pair_dist = \
             validate(model,
              val_loader,
              class_specific=class_specific,
              get_full_results=True)
         
-        # ---- CSV logging for validation ----
+        # CSV logging for validation - MODIFIED: Added stage info  
         if save_result:
             with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},{learning_rate}\n")
+                f.write(f"warm,{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},{settings.warm_optimizer_lrs['add_on_layers']}\n")
 
-
-        # ---- Early-stopping & LR schedule ----
+        # Early-stopping & model saving logic (preserved)
         if val_accuracy > best_accuracy:
             print("Model improved → saving")
             best_accuracy = val_accuracy
             best_epoch = epoch + 1
+            best_stage = "warm"  # ADDED: Track stage
             epochs_without_improvement = 0
             
             # Save best model based on validation accuracy
             best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
-            # torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
             print(f"Best model saved for epoch {epoch+1} with accuracy {val_accuracy:.4f}")
         else:
             epochs_without_improvement += 1
             print(f"No improvement for {epochs_without_improvement} epochs (best: {best_accuracy:.4f} at epoch {best_epoch})")
 
-        if epochs_without_improvement >= early_stopping_patience:
-            if lr_adjustments_made < lr_adjustment_patience:
-                if lr_adjustment_mode == 'increase':
-                    current_lr += lr_adjustment_rate
-                elif lr_adjustment_mode == 'decrease':
-                    current_lr -= lr_adjustment_rate
-                
-                # Update optimizer learning rate
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = current_lr
-                lr_adjustments_made += 1
-                epochs_without_improvement = 0
-                print(f"Learning-rate adjusted to {current_lr} due to no improvement for {epochs_without_improvement} epochs (adjustment {lr_adjustments_made}/{lr_adjustment_patience})")
-                print(f"Continuing training with new LR. Best model remains from epoch {best_epoch} with accuracy {best_accuracy:.4f}")
-            else:
-                print(f"Early stopping triggered at epoch {epoch+1}")
-                print(f"Maximum LR adjustments ({lr_adjustment_patience}) reached")
-                print(f"Final best model: epoch {best_epoch} with accuracy {best_accuracy:.4f}")
-                break
+    ### END STAGE 1 ###
+
+    #_____________________________________________________________________________________________________# 
+
+    ### STAGE 2: JOINT TRAINING - Using settings.joint_optimizer_lrs ###
+    print(f"\nStage 2: Joint training ({num_epochs} epochs)")
+    
+    # ADDED: joint_optimizer using settings.joint_optimizer_lrs
+    joint_optimizer = optim.Adam([
+        {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs['features']},
+        {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs['add_on_layers']},
+        {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs['prototype_vectors']}
+    ])
+    
+    # Unfreeze pretrained layers for joint training
+    for p in model.module.features.parameters():
+        p.requires_grad = True
+
+    # Reset epochs_without_improvement for joint training stage
+    epochs_without_improvement = 0
+    
+    for epoch in range(num_epochs):
+
+        
+        print(f"Joint Training Epoch {epoch+1}/{num_epochs}")
+
+        # Clear GPU memory before each epoch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
+        train(model, 
+              train_loader, 
+              joint_optimizer,
+              class_specific=class_specific,
+              get_full_results=get_full_results,
+              coefs=settings.coefs) 
+        
+
+        # CSV logging for training 
+        if save_result:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
+                f.write(f"joint,{epoch+1},train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},mixed\n")
+
+        # Validation
+        mode, running_time, val_loss, cluster_cost, separation_cost, avg_cluster_cost, val_accuracy, l1, p_avg_pair_dist = \
+            validate(model,
+             val_loader,
+             class_specific=class_specific,
+             get_full_results=True)
+        
+        # CSV logging for validation
+        if save_result:
+            with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
+                f.write(f"joint,{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},mixed\n")
+
+        # Prototype pushing logic (optional)
+        if push_prototypes and epoch >= settings.push_start and epoch in settings.push_epochs:
+            print(f"PUSHING PROTOTYPES at epoch {epoch}...")
+            
+            # Create epoch-specific directory for prototype images
+            proto_epoch_dir = os.path.join(img_dir, f'epoch-{epoch}')
+            makedir(proto_epoch_dir)
+            
+            # Perform prototype pushing
+            push.push_prototypes(
+                push_loader,  # Use push_loader (no normalization)
+                prototype_network_parallel=model,
+                class_specific=class_specific,
+                preprocess_input_function=None,  # No preprocessing needed
+                prototype_layer_stride=1,
+                root_dir_for_saving_prototypes=img_dir,
+                epoch_number=epoch,
+                prototype_img_filename_prefix=prototype_img_filename_prefix,
+                prototype_self_act_filename_prefix=prototype_self_act_filename_prefix,
+                proto_bound_boxes_filename_prefix=proto_bound_boxes_filename_prefix,
+                save_prototype_class_identity=True,
+                log=print
+            )
+            
+            # Test model after pushing
+            print("Testing model after prototype pushing...")
+            mode, running_time, push_val_loss, cluster_cost, separation_cost, avg_cluster_cost, push_val_accuracy, l1, p_avg_pair_dist = \
+                validate(model,
+                        val_loader,
+                        class_specific=class_specific,
+                        get_full_results=True)
+            
+            # CSV logging for post-push validation
+            if save_result:
+                with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
+                    f.write(f"push,{epoch},validation,{running_time},{push_val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{push_val_accuracy},{l1},{p_avg_pair_dist},push\n")
+            
+            print(f"Post-push validation accuracy: {push_val_accuracy:.4f}")
+            
+            # Check if push improved the model
+            if push_val_accuracy > best_accuracy:
+                print("Model improved after prototype pushing → saving")
+                best_accuracy = push_val_accuracy
+                best_epoch = epoch
+                best_stage = "push"
+                best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+
+
+    ## END STAGE 2 ###
+
+    #_____________________________________________________________________________________________________# 
+
+    ### STAGE 3: LAST LAYER OPTIMIZATION - Using settings.last_layer_optimizer_lr ###
+    
+    print("\nStage 3: Last layer optimization")
+
+    last_layer_optimizer = optim.Adam([
+        {'params': model.module.last_layer.parameters(), 'lr': settings.last_layer_optimizer_lr}
+    ])
+    
+    # Freeze all layers except last layer
+    for p in model.module.features.parameters():
+        p.requires_grad = False
+    for p in model.module.add_on_layers.parameters():
+        p.requires_grad = False
+    model.module.prototype_vectors.requires_grad = False
+    for p in model.module.last_layer.parameters():
+        p.requires_grad = True
+
+    # Run one epoch of last layer optimization with L1 regularization using settings.coefs
+    # ADDED: last_layer_coefs for last layer optimization (only cross entropy and L1)
+    last_layer_coefs = {
+        'crs_ent': settings.coefs['crs_ent'],
+        'clst': 0,  # No cluster cost for last layer
+        'sep': 0,   # No separation cost for last layer  
+        'l1': settings.coefs['l1']
+    }
+    
+    mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
+    train(model, 
+         train_loader, 
+         last_layer_optimizer,
+         class_specific=class_specific,
+         get_full_results=get_full_results,
+         coefs=last_layer_coefs)  # ADDED: Using last_layer_coefs
+
+    # Final validation
+    mode, running_time, val_loss, cluster_cost, separation_cost, avg_cluster_cost, val_accuracy, l1, p_avg_pair_dist = \
+    validate(model,
+            val_loader,
+            class_specific=class_specific,
+            get_full_results=True)
+
+    # CSV logging for last layer optimization - ADDED: Last stage logging
+    if save_result:
+        with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
+            f.write(f"last,1,train,{running_time},{train_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{train_accuracy},{l1},{p_avg_pair_dist},{settings.last_layer_optimizer_lr}\n")
+            f.write(f"last,1,validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist},{settings.last_layer_optimizer_lr}\n")
+
+    # Check if last layer optimization improved the model
+    if val_accuracy > best_accuracy:
+        print("Model improved in last layer optimization → saving")
+        best_accuracy = val_accuracy
+        best_stage = "last"  # ADDED: Track stage
+        best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
 
     print(f"Best model saved from epoch {best_epoch} with validation accuracy {best_accuracy:.4f}")
+    print(f"Best model came from {best_stage} stage")  # ADDED: Show which stage was best
 
     if best_model_state is not None:
         torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
         print(f"Final best model confirmed saved: {model_name}_best.pth")
 
     print("Training complete!")
+    if push_prototypes:
+        print(f"Prototype images saved in: {img_dir}")
+    
     return f"{best_models_foldername}/{model_name}_best.pth"
 
 
@@ -367,7 +571,7 @@ def test_protopnet(model_path,
 
     # Generate classification report and confusion matrix using integer labels
     classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
+    conf_matrix = confusion_matrix(y_true, y_pred)
     
     if verbose:
         print("\nClassification Report:")

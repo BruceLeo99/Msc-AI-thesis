@@ -674,7 +674,7 @@ def test_resnet18(model_path,
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
     classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
+    conf_matrix = confusion_matrix(y_true, y_pred)
 
     print("\nClassification Report:")
     print(classi_report)

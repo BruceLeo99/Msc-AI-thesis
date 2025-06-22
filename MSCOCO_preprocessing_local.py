@@ -85,6 +85,16 @@ coco_data_path_dict = {
     }
 }
 
+all_categories_info = coco_data_path_dict['train']['instance_path'].dataset['categories']
+cat_ids = [category['id'] for category in all_categories_info]
+cat_names = [category['name'] for category in all_categories_info]
+
+cat_name_id_map = dict(zip(cat_names, cat_ids))  
+cat_id_name_map = dict(zip(cat_ids, cat_names))
+
+train_ann_list = coco_data_path_dict['train']['instance_path'].dataset['annotations']
+val_ann_list = coco_data_path_dict['test']['instance_path'].dataset['annotations']
+
 
 def retrieve_captions(img_id, data_type):
     """
@@ -123,44 +133,74 @@ def load_from_COCOAPI(cat_name, num_instances, data_type, remove_multilabels=Fal
         'img_filename': 'coco/train2017/000000012345.jpg',
         'captions': 'This is a photo of a cat',
         'category': 'cat',
-        'supercategory': 'animal'
+        'category_id': 1,
+        'supercategory': 'animal',
+        'bbox': [x, y, width, height]
     }
     """
     data = []
 
-    # Sort and get the image ids of the category
-    categories = coco_data_path_dict[data_type]['instance_path'].dataset['categories']
-    cat_ids = [category['id'] for category in categories]
-    cat_names = [category['name'] for category in categories]
+    # Retrieve the image ids from the COCO Annotation files in the coco API (stored as instance json file). 
+    # Use image ids to get the bboxes of the given category from instance API. 
 
-    cat_dict = dict(zip(cat_names, cat_ids))    
-
-    cat_id = cat_dict[cat_name]
-    img_ids = coco_data_path_dict[data_type]['instance_path'].getImgIds(catIds=cat_id)
+    cat_id = cat_name_id_map[cat_name]
 
     if remove_multilabels:
+
+        # getImgIds return image ids that has at least one given category
+        # Load the entire image without bbox
+        img_ids = coco_data_path_dict[data_type]['instance_path'].getImgIds(catIds=cat_id)
         img_ids = [img_id for img_id in img_ids if len(coco_data_path_dict[data_type]['instance_path'].getAnnIds(imgIds=img_id)) == 1]
 
-    if shuffle:
-        random.shuffle(img_ids)
+        # Shuffle the image IDs
+        if shuffle:
+            random.shuffle(img_ids)
 
+    else:
+        # Load all images with bbox
+        if data_type == 'train':
+            ann_list = train_ann_list
+        else:
+            ann_list = val_ann_list
+
+        # Shuffle the annotation list first, then get the image ids. 
+        # In this way, the ids and their bboxes are shuffled together and also synchronized.
+        if shuffle:
+            random.shuffle(ann_list)
+
+        img_ids = [ann['image_id'] for ann in ann_list if ann['category_id'] == cat_id]
+
+    # Get the first num_instances image ids and their bboxes
     img_ids = img_ids[:num_instances]
+    ann_list = ann_list[:num_instances]
+
+    # Sort the image ids and their bboxes by image ids
+    img_ids = sorted(img_ids)
+    ann_list = sorted(ann_list, key=lambda x: x['image_id'])
 
     if verbose:
         print(f"Number of images: {len(img_ids)}")
+        print(f"From single label images: {remove_multilabels}")
         print(f"Image ids: {img_ids}")
         
     # Store the image ids, image_url, image_filename, captions in data_dict
-    for img_id in img_ids:
-        img_filename = coco_data_path_dict[data_type]['instance_path'].loadImgs(img_id)[0]['file_name']
+    for idx, image_id in enumerate(img_ids):
+        img_filename = coco_data_path_dict[data_type]['instance_path'].loadImgs(image_id)[0]['file_name']
+
+        if remove_multilabels:
+            bbox = None
+        else:
+            bbox = ann_list[idx]['bbox']
         
         data_info = {
-            'img_id': img_id, # E.g.: 12345
-            'url': coco_data_path_dict[data_type]['instance_path'].loadImgs(img_id)[0]['coco_url'], # E.g.: 'http://images.cocodataset.org/train2017/000000012345.jpg'
+            'img_id': image_id, # E.g.: 12345
+            'url': coco_data_path_dict[data_type]['instance_path'].loadImgs(image_id)[0]['coco_url'], # E.g.: 'http://images.cocodataset.org/train2017/000000012345.jpg'
             'img_filename': f"{coco_data_path_dict[data_type]['images_path']}/{img_filename}", # E.g.: 'coco/train2017/000000012345.jpg'
-            'captions': retrieve_captions(img_id, data_type), # captions in string
+            'captions': retrieve_captions(image_id, data_type), # captions in string
             'category': cat_name, # cateogry name in string
-            'supercategory': category_supercategory_map[cat_name] # supercategory name in string
+            'category_id': cat_id, 
+            'supercategory': category_supercategory_map[cat_name], # supercategory name in string
+            'bbox': bbox
         }
 
         data.append(data_info)
@@ -199,11 +239,12 @@ class MSCOCOCustomDataset(Dataset):
             self.data = data_list
             self.dataset_length = len(self.data)
             self.img_ids = [item['img_id'] for item in self.data]
-            self.img_labels = dict(zip(self.img_ids, [item['category'] for item in self.data]))
+            self.unique_img_ids = list(set(self.img_ids))
             self.img_urls = dict(zip(self.img_ids, [item['url'] for item in self.data]))
             self.img_filenames = dict(zip(self.img_ids, [item['img_filename'] for item in self.data]))
             self.img_captions = dict(zip(self.img_ids, [item['captions'] for item in self.data]))
             self.img_supercategories = dict(zip(self.img_ids, [item['supercategory'] for item in self.data]))
+            self.img_labels_bboxes = [(datapoint['img_id'], datapoint['category'], datapoint['category_id'], datapoint['bbox']) for datapoint in self.data]
 
         elif self.load_from_json is not None:
             if not self.load_from_json.endswith(".json"):
@@ -214,7 +255,8 @@ class MSCOCOCustomDataset(Dataset):
                 self.data = data_info
                 self.dataset_length = len(data_info['img_ids'])
                 self.img_ids = data_info['img_ids']
-                self.img_labels = data_info['img_labels']
+                self.unique_img_ids = list(set(self.img_ids))
+                self.img_labels_bboxes = data_info['img_labels_bboxes']
                 self.img_urls = data_info['img_urls']
                 self.img_filenames = data_info['img_filenames']
                 self.img_captions = data_info['img_captions']
@@ -239,10 +281,10 @@ class MSCOCOCustomDataset(Dataset):
             ])
 
         if fix_label_mapping:
-            self.label_names = sorted(list(set(self.img_labels.values())))
+            self.label_names = sorted(list(set([datapoint[1] for datapoint in self.img_labels_bboxes])))
             self.label_name_idx = self._create_label_mapping()
         else:
-            self.label_names = sorted(list(set(self.img_labels.values())))
+            self.label_names = sorted(list(set([datapoint[1] for datapoint in self.img_labels_bboxes])))
             self.label_name_idx = dict(zip(self.label_names, range(len(self.label_names))))
         
         if self.target_transform == "one_hot":
@@ -294,7 +336,7 @@ class MSCOCOCustomDataset(Dataset):
         return self.img_urls[self.img_ids[idx]]
     
     def get_image_label(self, idx):
-        return self.img_labels[self.img_ids[idx]]
+        return self.img_labels_bboxes[self.img_ids[idx]][1]
     
     def get_image_caption(self, idx):
         return self.img_captions[self.img_ids[idx]]
@@ -308,25 +350,41 @@ class MSCOCOCustomDataset(Dataset):
     def get_image_filename(self, idx):
         return self.img_filenames[self.img_ids[idx]]
     
-    def read_image_from_local(self, image_id):
+    def read_image_from_local(self, idx):
         """
-        Reads an image from a given image_id
+        Reads an image from a given image_id and crops it if bbox is available
         """
         # Use direct dictionary access with image_id
-        if image_id not in self.img_ids:
-            raise KeyError(f"Image ID {image_id} not found in dataset")
+        # if idx not in self.img_ids:
+        #     raise KeyError(f"Image ID {idx} not found in dataset")
         
-        image_filename = self.img_filenames[image_id]
+        image_filename = self.img_filenames[idx]
         try:
-            return Image.open(image_filename).convert('RGB')
+            image = Image.open(image_filename).convert('RGB')
+            
+            # If bbox is available, crop the region first, then let transform handle resizing
+            if self.img_labels_bboxes[idx][3] is not None:
+                x, y, w, h = self.img_labels_bboxes[idx][3]
+                
+                # Ensure coordinates are within image bounds
+                img_width, img_height = image.size
+                x = max(0, min(x, img_width))
+                y = max(0, min(y, img_height))
+                x2 = max(x, min(x + w, img_width))
+                y2 = max(y, min(y + h, img_height))
+                
+                # Crop the bounding box region from original image
+                image = image.crop((x, y, x2+100, y2+100))
+            
+            return image
         
         except (FileNotFoundError, IOError) as e:
             raise FileNotFoundError(f"Could not load image {image_filename}: {e}")
         
 
-    def read_image_from_url(self,image_url):
+    def read_image_from_url(self, image_url, idx):
         """
-        Reads an image from a given URL with retry logic
+        Reads an image from a given URL with retry logic and crops it if bbox is available
         """
         max_retries = 3
         
@@ -335,6 +393,21 @@ class MSCOCOCustomDataset(Dataset):
                 response = requests.get(image_url, timeout=10)
                 response.raise_for_status()  # Raise an exception for bad status codes
                 img = Image.open(BytesIO(response.content)).convert('RGB')
+                
+                # If bbox is available, crop the region first
+                if self.img_labels_bboxes[idx][3] is not None:
+                    x, y, w, h = self.img_labels_bboxes[idx][3]
+                    
+                    # Ensure coordinates are within image bounds
+                    img_width, img_height = img.size
+                    x = max(0, min(x, img_width))
+                    y = max(0, min(y, img_height))
+                    x2 = max(x, min(x + w, img_width))
+                    y2 = max(y, min(y + h, img_height))
+                    
+                    # Crop the bounding box region from original image
+                    img = img.crop((x, y, x2, y2))
+                
                 return img
             except Exception as e:
                 if attempt < max_retries - 1:
@@ -342,6 +415,7 @@ class MSCOCOCustomDataset(Dataset):
                     time.sleep(1)  # Wait before retry
                 else:
                     print(f"Failed to load image from {image_url} after {max_retries} attempts: {e}")
+                    return None
                 
     
     def __getitem__(self, idx):
@@ -350,11 +424,11 @@ class MSCOCOCustomDataset(Dataset):
             
         image_id = self.img_ids[idx]
         if self.load_from_local:
-            image = self.read_image_from_local(image_id)
+            image = self.read_image_from_local(idx)
         else:
-            image = self.read_image_from_url(self.img_urls[image_id])
+            image = self.read_image_from_url(self.img_urls[image_id], idx)
 
-        image_label = self.img_labels[image_id]
+        image_label = self.img_labels_bboxes[idx][1]
 
         if self.transform is not None:
             image = self.transform(image)
@@ -367,7 +441,7 @@ class MSCOCOCustomDataset(Dataset):
                 image_label = self.target_transform(image_label)
             
         if self.load_captions:
-            image_caption = self.img_captions[image_id]
+            image_caption = self.img_captions[idx]
             
             # Tokenize caption with padding and truncation
             encoding = self.tokenizer(
