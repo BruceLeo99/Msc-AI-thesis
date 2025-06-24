@@ -1,5 +1,6 @@
 import time
 import torch
+import torch.optim as optim
 
 from ProtoPNet.helpers import list_of_distances, make_one_hot
 
@@ -174,37 +175,53 @@ def validate(model, dataloader, class_specific=False, log=print, get_full_result
                           class_specific=class_specific, log=log, get_full_results=get_full_results)
 
 
-def last_only(model, log=print):
-    for p in model.modules.features.parameters():
+
+def warm_only_multimodal(model, log=print):
+    """Freeze pretrained layers, train only prototype-related parts"""
+    # Freeze pretrained feature extractors
+    for p in model.module.vgg16_features.parameters():
         p.requires_grad = False
-    for p in model.modules.add_on_layers.parameters():
+    for p in model.module.encoder.parameters():
         p.requires_grad = False
-    model.modules.prototype_vectors.requires_grad = False
-    for p in model.modules.last_layer.parameters():
+    
+    # Enable training for prototype-related layers
+    for p in model.module.visual_projection.parameters():
+        p.requires_grad = True
+    for p in model.module.last_layer.parameters():
+        p.requires_grad = True
+    model.module.prototype_vectors.requires_grad = True
+    
+    log('\twarm (multimodal)')
+
+
+def joint_multimodal(model, log=print):
+    """Enable training for all layers"""
+    # Enable all layers
+    for p in model.module.vgg16_features.parameters():
+        p.requires_grad = True
+    for p in model.module.encoder.parameters():
+        p.requires_grad = True
+    for p in model.module.visual_projection.parameters():
+        p.requires_grad = True
+    for p in model.module.last_layer.parameters():
+        p.requires_grad = True
+    model.module.prototype_vectors.requires_grad = True
+    
+    log('\tjoint (multimodal)')
+
+
+def last_only_multimodal(model, log=print):
+    """Train only the last layer"""
+    # Freeze everything except last layer
+    for p in model.module.vgg16_features.parameters():
+        p.requires_grad = False
+    for p in model.module.encoder.parameters():
+        p.requires_grad = False
+    for p in model.module.visual_projection.parameters():
+        p.requires_grad = False
+    model.module.prototype_vectors.requires_grad = False
+    for p in model.module.last_layer.parameters():
         p.requires_grad = True
     
-    log('\tlast layer')
+    log('\tlast layer (multimodal)')
 
-
-def warm_only(model, log=print):
-    for p in model.modules.features.parameters():
-        p.requires_grad = False
-    for p in model.modules.add_on_layers.parameters():
-        p.requires_grad = True
-    model.modules.prototype_vectors.requires_grad = True
-    for p in model.modules.last_layer.parameters():
-        p.requires_grad = True
-    
-    log('\twarm')
-
-
-def joint(model, log=print):
-    for p in model.modules.features.parameters():
-        p.requires_grad = True
-    for p in model.modules.add_on_layers.parameters():
-        p.requires_grad = True
-    model.modules.prototype_vectors.requires_grad = True
-    for p in model.modules.last_layer.parameters():
-        p.requires_grad = True
-    
-    log('\tjoint')

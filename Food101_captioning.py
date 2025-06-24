@@ -14,6 +14,12 @@ import torch.utils.data as data
 from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration, Blip2Processor, Blip2ForConditionalGeneration, LlavaNextProcessor, LlavaNextForConditionalGeneration, InstructBlipProcessor, InstructBlipForConditionalGeneration
 import re
+import multiprocessing
+from queue import Queue
+from threading import Thread
+
+import requests
+
 
 class COCOStyleSoftPrompt(nn.Module):
     """
@@ -445,68 +451,201 @@ def enhance_food_caption_with_templates(basic_caption, food_name, remove_noise=T
         # If basic caption is too short, make it more descriptive
         basic_caption = f"{basic_caption} with appealing presentation and careful arrangement"
     
-    # Food-specific vocabulary enhancement
-    food_adjectives = [
-        "mouthwatering", "delectable", "savory", "appetizing", "scrumptious",
-        "delicious", "tempting", "flavorful", "aromatic", "golden-brown",
-        "crispy", "tender", "juicy", "fresh", "artisanal", "gourmet",
-        "homemade", "authentic", "traditional", "exquisite"
+    # Expanded gastronomy-focused adjectives categorized by type
+    texture_adjectives = [
+        "crispy", "tender", "juicy", "flaky", "creamy", "smooth", "velvety", "buttery",
+        "crunchy", "silky", "fluffy", "chewy", "succulent", "melt-in-your-mouth",
+        "al-dente", "fork-tender", "perfectly-textured", "delicately-soft", "satisfyingly-firm"
     ]
     
-    # Creative food templates with varied positioning (beginning, middle, end)
+    visual_adjectives = [
+        "golden-brown", "caramelized", "glossy", "vibrant", "colorful", "glazed",
+        "rustic", "elegant", "refined", "artfully-arranged", "picture-perfect",
+        "Instagram-worthy", "photogenic", "stunning", "eye-catching", "beautifully-plated",
+        "aesthetically-pleasing", "visually-striking", "artistically-presented", "magazine-worthy"
+    ]
+    
+    flavor_adjectives = [
+        "savory", "aromatic", "flavorful", "rich", "bold", "subtle", "complex",
+        "umami-packed", "herb-infused", "spice-laden", "tangy", "zesty", "robust",
+        "well-seasoned", "perfectly-balanced", "intensely-flavored", "nuanced", "multi-layered"
+    ]
+    
+    culinary_adjectives = [
+        "artisanal", "gourmet", "chef-crafted", "restaurant-quality", "professionally-prepared",
+        "expertly-seasoned", "masterfully-cooked", "skillfully-plated", "thoughtfully-composed",
+        "meticulously-prepared", "carefully-crafted", "precision-cooked", "lovingly-made"
+    ]
+    
+    emotional_adjectives = [
+        "mouthwatering", "delectable", "appetizing", "scrumptious", "tempting",
+        "irresistible", "enticing", "alluring", "captivating", "inviting",
+        "soul-satisfying", "comfort-inducing", "blissful", "heavenly", "divine"
+    ]
+    
+    authenticity_adjectives = [
+        "authentic", "traditional", "homemade", "farm-to-table", "locally-sourced",
+        "heritage", "time-honored", "classic", "regional", "signature",
+        "family-recipe", "grandmother's-style", "old-world", "artisan-made", "small-batch"
+    ]
+    
+    # Function to randomly select adjectives from different categories
+    def get_random_adjectives():
+        # Occasionally use multiple adjectives for richer descriptions
+        use_double_adj = random.random() < 0.3  # 30% chance for double adjectives
+        
+        if use_double_adj:
+            return {
+                'texture': f"{random.choice(texture_adjectives)} and {random.choice(texture_adjectives)}",
+                'visual': f"{random.choice(visual_adjectives)} yet {random.choice(visual_adjectives)}",
+                'flavor': f"{random.choice(flavor_adjectives)}, {random.choice(flavor_adjectives)}",
+                'culinary': random.choice(culinary_adjectives),
+                'emotional': f"{random.choice(emotional_adjectives)} and {random.choice(emotional_adjectives)}",
+                'authenticity': random.choice(authenticity_adjectives)
+            }
+        else:
+            return {
+                'texture': random.choice(texture_adjectives),
+                'visual': random.choice(visual_adjectives),
+                'flavor': random.choice(flavor_adjectives),
+                'culinary': random.choice(culinary_adjectives),
+                'emotional': random.choice(emotional_adjectives),
+                'authenticity': random.choice(authenticity_adjectives)
+            }
+    
+    # Get random adjectives for this caption
+    adj = get_random_adjectives()
+    
+    # Vastly expanded creative templates with smart adjective placement
     templates = [
-        # Basic caption at the END (original style)
-        f"A culinary masterpiece featuring {formatted_food_name} where {basic_caption.lower()}",
-        f"Behold this delectable {formatted_food_name} presentation - {basic_caption.lower()}",
-        f"This mouthwatering photograph captures {formatted_food_name} as {basic_caption.lower()}",
-        f"An exquisite culinary display of {formatted_food_name} showing {basic_caption.lower()}",
-        f"This tempting food photography reveals {formatted_food_name} with {basic_caption.lower()}",
-        f"A gastronomic delight: {formatted_food_name} beautifully presented where {basic_caption.lower()}",
-        f"This artisanal {formatted_food_name} creation displays {basic_caption.lower()}",
-        f"A delicious representation of {formatted_food_name} featuring {basic_caption.lower()}",
-        f"This scrumptious {formatted_food_name} arrangement shows {basic_caption.lower()}",
-        f"Feast your eyes on this {formatted_food_name} where {basic_caption.lower()}",
-        f"A gourmet presentation of {formatted_food_name} that {basic_caption.lower()}",
+        # Classic presentation templates
+        f"A culinary masterpiece featuring {adj['emotional']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Behold this {adj['visual']} {formatted_food_name} presentation - {basic_caption.lower()}",
+        f"This {adj['emotional']} photograph captures {adj['texture']} {formatted_food_name} as {basic_caption.lower()}",
+        f"An {adj['visual']} culinary display of {adj['culinary']} {formatted_food_name} showing {basic_caption.lower()}",
+        f"This {adj['emotional']} food photography reveals {adj['authenticity']} {formatted_food_name} with {basic_caption.lower()}",
+        f"A gastronomic delight: {adj['flavor']} {formatted_food_name} {adj['visual']} presented where {basic_caption.lower()}",
         
-        # Basic caption at the BEGINNING (new style)
-        f"{basic_caption.capitalize()}, creating a stunning {formatted_food_name} masterpiece",
-        f"{basic_caption.capitalize()}, this appetizing {formatted_food_name} draws the eye",
-        f"{basic_caption.capitalize()}, showcasing the beauty of {formatted_food_name}",
-        f"{basic_caption.capitalize()}, presenting an irresistible {formatted_food_name} experience",
-        f"{basic_caption.capitalize()}, highlighting the artistry of {formatted_food_name} preparation",
-        f"{basic_caption.capitalize()}, demonstrating the elegance of {formatted_food_name} cuisine",
-        f"{basic_caption.capitalize()}, revealing the craftsmanship behind this {formatted_food_name}",
-        f"{basic_caption.capitalize()}, capturing the essence of traditional {formatted_food_name}",
-        f"{basic_caption.capitalize()}, embodying the perfect {formatted_food_name} presentation",
-        f"{basic_caption.capitalize()}, exemplifying the art of {formatted_food_name} plating",
+        # Chef and restaurant-style templates
+        f"From the chef's table: {adj['culinary']} {formatted_food_name} where {basic_caption.lower()}",
+        f"A {adj['culinary']} creation showcasing {adj['texture']} {formatted_food_name} as {basic_caption.lower()}",
+        f"Restaurant-quality {adj['visual']} {formatted_food_name} presentation where {basic_caption.lower()}",
+        f"The chef's {adj['emotional']} interpretation of {formatted_food_name}: {basic_caption.lower()}",
+        f"Michelin-worthy {adj['culinary']} {formatted_food_name} displaying {basic_caption.lower()}",
+        f"A signature dish: {adj['authenticity']} {formatted_food_name} {adj['visual']} arranged where {basic_caption.lower()}",
         
-        # Basic caption in the MIDDLE (new style)
-        f"In this culinary scene, {basic_caption.lower()}, creating a magnificent {formatted_food_name} display",
-        f"This gourmet photograph shows {basic_caption.lower()}, featuring exquisite {formatted_food_name}",
-        f"A restaurant-quality image where {basic_caption.lower()}, showcasing premium {formatted_food_name}",
-        f"This appetizing composition reveals {basic_caption.lower()}, highlighting artisanal {formatted_food_name}",
-        f"An authentic dining moment where {basic_caption.lower()}, presenting traditional {formatted_food_name}",
-        f"This tempting food scene depicts {basic_caption.lower()}, celebrating delicious {formatted_food_name}",
-        f"A chef's creation where {basic_caption.lower()}, demonstrating masterful {formatted_food_name} preparation",
-        f"This mouthwatering display shows {basic_caption.lower()}, featuring carefully crafted {formatted_food_name}",
-        f"A culinary artwork where {basic_caption.lower()}, presenting beautifully plated {formatted_food_name}",
-        f"This food photography captures {basic_caption.lower()}, showcasing perfectly prepared {formatted_food_name}",
+        # Sensory experience templates
+        f"A feast for the senses: {adj['flavor']} {formatted_food_name} with {adj['texture']} texture, {basic_caption.lower()}",
+        f"Indulge in this {adj['emotional']} {formatted_food_name} experience where {basic_caption.lower()}",
+        f"Savor the {adj['flavor']} essence of {formatted_food_name} in this {adj['visual']} display: {basic_caption.lower()}",
+        f"A {adj['texture']} and {adj['flavor']} {formatted_food_name} journey captured as {basic_caption.lower()}",
+        f"Taste meets artistry: {adj['emotional']} {formatted_food_name} with {adj['texture']} perfection, {basic_caption.lower()}",
         
-        # More creative mixed positions
-        f"The essence of {formatted_food_name} shines through as {basic_caption.lower()}, creating visual appeal",
-        f"A foodie's dream unfolds where {basic_caption.lower()}, featuring stunning {formatted_food_name}",
-        f"Culinary artistry meets visual delight: {basic_caption.lower()}, showcasing {formatted_food_name}",
-        f"From kitchen to table, {basic_caption.lower()}, presenting restaurant-quality {formatted_food_name}",
-        f"This dining experience captures {basic_caption.lower()}, celebrating the beauty of {formatted_food_name}",
+        # Storytelling templates
+        f"The story of {adj['authenticity']} {formatted_food_name} unfolds: {basic_caption.lower()}",
+        f"A culinary tale featuring {adj['emotional']} {formatted_food_name} where {basic_caption.lower()}",
+        f"From tradition to table: {adj['authenticity']} {formatted_food_name} {adj['visual']} presented as {basic_caption.lower()}",
+        f"Heritage meets innovation in this {adj['culinary']} {formatted_food_name}: {basic_caption.lower()}",
+        f"A love letter to {adj['authenticity']} cuisine: {adj['emotional']} {formatted_food_name} where {basic_caption.lower()}",
+        
+        # Artistic and aesthetic templates
+        f"Culinary artistry at its finest: {adj['visual']} {formatted_food_name} where {basic_caption.lower()}",
+        f"A {adj['visual']} composition celebrating {adj['texture']} {formatted_food_name}: {basic_caption.lower()}",
+        f"Food as art: {adj['culinary']} {formatted_food_name} {adj['visual']} arranged where {basic_caption.lower()}",
+        f"The canvas of cuisine: {adj['emotional']} {formatted_food_name} painted as {basic_caption.lower()}",
+        f"Edible artistry featuring {adj['flavor']} {formatted_food_name} in this {adj['visual']} tableau: {basic_caption.lower()}",
+        
+        # Experience and emotion templates
+        f"Pure {adj['emotional']} bliss: {adj['texture']} {formatted_food_name} where {basic_caption.lower()}",
+        f"A moment of culinary joy featuring {adj['flavor']} {formatted_food_name}: {basic_caption.lower()}",
+        f"Comfort food elevated: {adj['authenticity']} {formatted_food_name} {adj['visual']} presented where {basic_caption.lower()}",
+        f"The ultimate {formatted_food_name} experience: {adj['emotional']} and {adj['texture']}, {basic_caption.lower()}",
+        f"Foodie paradise captured: {adj['culinary']} {formatted_food_name} where {basic_caption.lower()}",
+        
+        # Caption-first templates (basic caption at beginning)
+        f"{basic_caption.capitalize()}, creating a {adj['visual']} {formatted_food_name} masterpiece",
+        f"{basic_caption.capitalize()}, this {adj['emotional']} {formatted_food_name} draws the eye with {adj['texture']} appeal",
+        f"{basic_caption.capitalize()}, showcasing the {adj['flavor']} beauty of {adj['authenticity']} {formatted_food_name}",
+        f"{basic_caption.capitalize()}, presenting an {adj['emotional']} {formatted_food_name} experience with {adj['culinary']} flair",
+        f"{basic_caption.capitalize()}, highlighting the {adj['texture']} artistry of {formatted_food_name} preparation",
+        f"{basic_caption.capitalize()}, demonstrating the {adj['visual']} elegance of {adj['authenticity']} {formatted_food_name} cuisine",
+        f"{basic_caption.capitalize()}, revealing the {adj['culinary']} craftsmanship behind this {adj['emotional']} {formatted_food_name}",
+        f"{basic_caption.capitalize()}, capturing the {adj['flavor']} essence of traditional {formatted_food_name}",
+        f"{basic_caption.capitalize()}, embodying the perfect {adj['texture']} {formatted_food_name} presentation",
+        f"{basic_caption.capitalize()}, exemplifying the art of {adj['visual']} {formatted_food_name} plating",
+        
+        # Mixed position templates (basic caption in middle)
+        f"In this {adj['visual']} culinary scene, {basic_caption.lower()}, creating a magnificent {adj['emotional']} {formatted_food_name} display",
+        f"This {adj['culinary']} photograph shows {basic_caption.lower()}, featuring {adj['texture']} {formatted_food_name}",
+        f"A {adj['authenticity']} dining moment where {basic_caption.lower()}, showcasing {adj['flavor']} {formatted_food_name}",
+        f"This {adj['emotional']} composition reveals {basic_caption.lower()}, highlighting {adj['culinary']} {formatted_food_name}",
+        f"An {adj['authenticity']} dining experience where {basic_caption.lower()}, presenting {adj['visual']} {formatted_food_name}",
+        f"This {adj['emotional']} food scene depicts {basic_caption.lower()}, celebrating {adj['texture']} {formatted_food_name}",
+        f"A chef's {adj['culinary']} vision where {basic_caption.lower()}, demonstrating {adj['flavor']} {formatted_food_name} mastery",
+        f"This {adj['visual']} display shows {basic_caption.lower()}, featuring {adj['authenticity']} {formatted_food_name}",
+        f"A culinary artwork where {basic_caption.lower()}, presenting {adj['texture']} {formatted_food_name}",
+        f"This food photography captures {basic_caption.lower()}, showcasing {adj['emotional']} {formatted_food_name}",
+        
+        # Poetic and literary templates
+        f"The essence of {adj['authenticity']} {formatted_food_name} shines through as {basic_caption.lower()}, creating {adj['visual']} appeal",
+        f"A foodie's {adj['emotional']} dream unfolds where {basic_caption.lower()}, featuring {adj['texture']} {formatted_food_name}",
+        f"Culinary poetry in motion: {basic_caption.lower()}, showcasing {adj['flavor']} {formatted_food_name}",
+        f"From kitchen to soul, {basic_caption.lower()}, presenting {adj['culinary']} {formatted_food_name}",
+        f"This dining symphony captures {basic_caption.lower()}, celebrating the {adj['emotional']} beauty of {formatted_food_name}",
+        f"Where tradition meets innovation: {basic_caption.lower()}, featuring {adj['authenticity']} {formatted_food_name}",
+        f"A culinary love affair with {adj['texture']} {formatted_food_name}: {basic_caption.lower()}",
+        
+        # Modern foodie culture templates
+        f"Instagram-worthy {adj['visual']} {formatted_food_name} perfection: {basic_caption.lower()}",
+        f"Foodie goals achieved with this {adj['emotional']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Feed your soul with {adj['flavor']} {formatted_food_name}: {basic_caption.lower()}",
+        f"Food porn at its finest: {adj['culinary']} {formatted_food_name} {adj['visual']} displayed as {basic_caption.lower()}",
+        f"Drool-worthy {adj['texture']} {formatted_food_name} content: {basic_caption.lower()}",
+        f"The ultimate food flex: {adj['authenticity']} {formatted_food_name} where {basic_caption.lower()}",
+        
+        # Seasonal and contextual templates
+        f"Comfort food redefined: {adj['emotional']} {formatted_food_name} with {adj['texture']} perfection, {basic_caption.lower()}",
+        f"A warming embrace of {adj['flavor']} {formatted_food_name}: {basic_caption.lower()}",
+        f"Soul food elevated: {adj['authenticity']} {formatted_food_name} {adj['visual']} presented where {basic_caption.lower()}",
+        f"The perfect bite: {adj['texture']} {formatted_food_name} with {adj['flavor']} notes, {basic_caption.lower()}",
+        f"Nostalgic flavors meet modern presentation: {adj['culinary']} {formatted_food_name} where {basic_caption.lower()}",
+        
+        # Cultural and global cuisine templates
+        f"A {adj['authenticity']} culinary journey: {adj['flavor']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Global flavors unite in this {adj['emotional']} {formatted_food_name}: {basic_caption.lower()}",
+        f"Street food meets fine dining: {adj['texture']} {formatted_food_name} {adj['visual']} crafted as {basic_caption.lower()}",
+        f"Cultural heritage on a plate: {adj['authenticity']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Fusion cuisine at its best: {adj['culinary']} {formatted_food_name} with {adj['flavor']} complexity, {basic_caption.lower()}",
+        
+        # Technique and preparation templates
+        f"Masterful technique revealed: {adj['culinary']} {formatted_food_name} with {adj['texture']} execution, {basic_caption.lower()}",
+        f"Hours of preparation condensed into {adj['emotional']} {formatted_food_name}: {basic_caption.lower()}",
+        f"Kitchen artistry showcased through {adj['visual']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Precision meets passion in this {adj['culinary']} {formatted_food_name}: {basic_caption.lower()}",
+        f"The chef's signature touch: {adj['authenticity']} {formatted_food_name} {adj['texture']} prepared as {basic_caption.lower()}",
+        
+        # Sensory journey templates
+        f"A symphony of textures: {adj['texture']} {formatted_food_name} with {adj['flavor']} harmony, {basic_caption.lower()}",
+        f"Aromatic bliss captured: {adj['emotional']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Visual feast meets taste sensation: {adj['visual']} {formatted_food_name} as {basic_caption.lower()}",
+        f"From first glance to last bite: {adj['emotional']} {formatted_food_name} journey where {basic_caption.lower()}",
+        f"Sensory overload in the best way: {adj['flavor']} {formatted_food_name} with {adj['texture']} appeal, {basic_caption.lower()}",
+        
+        # Time and occasion templates
+        f"Weekend indulgence: {adj['emotional']} {formatted_food_name} with {adj['texture']} satisfaction, {basic_caption.lower()}",
+        f"Midnight craving satisfied: {adj['flavor']} {formatted_food_name} where {basic_caption.lower()}",
+        f"Sunday brunch perfection: {adj['authenticity']} {formatted_food_name} {adj['visual']} presented as {basic_caption.lower()}",
+        f"Date night worthy: {adj['culinary']} {formatted_food_name} with {adj['emotional']} appeal, {basic_caption.lower()}",
+        f"Celebration on a plate: {adj['visual']} {formatted_food_name} where {basic_caption.lower()}",
     ]
     
     # Select random template
     enhanced_caption = random.choice(templates)
     
-    # Clean up and enhance with food adjectives
-    enhanced_caption = enhanced_caption.replace("a plate of food", f"a plate of {random.choice(food_adjectives)} {formatted_food_name}")
-    enhanced_caption = enhanced_caption.replace("some food", f"some {random.choice(food_adjectives)} {formatted_food_name}")
-    enhanced_caption = enhanced_caption.replace("the food", f"the {random.choice(food_adjectives)} {formatted_food_name}")
+    # # Clean up and enhance with food adjectives
+    # enhanced_caption = enhanced_caption.replace("a plate of food", f"a plate of {random.choice(food_adjectives)} {formatted_food_name}")
+    # enhanced_caption = enhanced_caption.replace("some food", f"some {random.choice(food_adjectives)} {formatted_food_name}")
+    # enhanced_caption = enhanced_caption.replace("the food", f"the {random.choice(food_adjectives)} {formatted_food_name}")
     
     # Remove redundant phrases using regex
     def has_generic_starter(caption):
@@ -587,54 +726,55 @@ def generate_food_caption_with_blip2_prompt(image_path, basic_caption, food_name
         formatted_food_name = food_name.replace('_', ' ')
         
         # Use simple, direct questions that BLIP2 handles well
-        prompts = [
-            f"Question: What does this {formatted_food_name} look like? Answer:",
-            f"Question: Describe this {formatted_food_name} in detail. Answer:",
-            f"Question: What can you tell me about this {formatted_food_name}? Answer:",
-            f"Describe the {formatted_food_name} in this image in detail."
-        ]
+        # prompts = [
+        #     f"Question: What does this {formatted_food_name} look like? Answer:",
+        #     f"Question: Describe this {formatted_food_name} in detail. Answer:",
+        #     f"Question: What can you tell me about this {formatted_food_name}? Answer:",
+        #     f"Describe the {formatted_food_name} in this image in detail."
+        # ]
+        prompt = f"Question: <image>\nHere is a general description of the image: {basic_caption}. As you can see, there is also a {formatted_food_name} in the image. Based on the general description, please write an expressive caption for this image about the {formatted_food_name}. Please make sure the caption is not too long and not too short and must contain {formatted_food_name} in the caption. Also, display the caption only. Answer:"
         
         # Try different prompts and use the best result
         best_caption = ""
-        for prompt in prompts:
-            try:
-                # Process with BLIP-2
-                inputs = blip2_processor(images=image, text=prompt, return_tensors="pt")
+        # for prompt in prompts:
+        try:
+            # Process with BLIP-2
+            inputs = blip2_processor(images=image, text=prompt, return_tensors="pt")
+            
+            # Generate with BLIP-2
+            generated_ids = blip2_model.generate(
+                **inputs,
+                max_length=max_length,
+                min_length=25,
+                do_sample=True,
+                temperature=0.8,
+                top_p=0.9,
+                repetition_penalty=1.3,
+                length_penalty=1.1,
+                early_stopping=True,
+                pad_token_id=blip2_processor.tokenizer.eos_token_id
+            )
+            
+            # Decode the generated caption
+            generated_text = blip2_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+            # Clean up the response
+            caption = generated_text.strip()
+            
+            # Remove the prompt if it's echoed back
+            if "Question:" in caption:
+                caption = caption.split("Answer:")[-1].strip() if "Answer:" in caption else caption.split("Question:")[-1].strip()
+            
+            # Remove common BLIP2 artifacts
+            caption = caption.replace("Question:", "").replace("Answer:", "").strip()
+            
+            # If this caption is longer and more descriptive, keep it
+            if len(caption.split()) > len(best_caption.split()) and len(caption.split()) >= 8:
+                best_caption = caption
                 
-                # Generate with BLIP-2
-                generated_ids = blip2_model.generate(
-                    **inputs,
-                    max_length=max_length,
-                    min_length=25,
-                    do_sample=True,
-                    temperature=0.8,
-                    top_p=0.9,
-                    repetition_penalty=1.3,
-                    length_penalty=1.1,
-                    early_stopping=True,
-                    pad_token_id=blip2_processor.tokenizer.eos_token_id
-                )
-                
-                # Decode the generated caption
-                generated_text = blip2_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                
-                # Clean up the response
-                caption = generated_text.strip()
-                
-                # Remove the prompt if it's echoed back
-                if "Question:" in caption:
-                    caption = caption.split("Answer:")[-1].strip() if "Answer:" in caption else caption.split("Question:")[-1].strip()
-                
-                # Remove common BLIP2 artifacts
-                caption = caption.replace("Question:", "").replace("Answer:", "").strip()
-                
-                # If this caption is longer and more descriptive, keep it
-                if len(caption.split()) > len(best_caption.split()) and len(caption.split()) >= 8:
-                    best_caption = caption
-                    
-            except Exception as e:
-                print(f"Error with prompt '{prompt}': {e}")
-                continue
+        except Exception as e:
+            print(f"Error with prompt '{prompt}': {e}")
+            # continue
         
         # If no good caption found, fall back to unconditional generation
         if not best_caption or len(best_caption.split()) < 5:
@@ -686,9 +826,9 @@ def generate_food_caption_with_llava(image_path, basic_caption, food_name=None, 
     
     if food_name:
         formatted_food_name = food_name.replace('_', ' ')
-        prompt = f"USER: <image>\nHere is a general description of the image: {basic_caption}. As you can see, there is also a {formatted_food_name} in the image. Based on the general description, please write an expressive caption for this image about the {formatted_food_name}. Please make sure the caption is not too long and not too short. Also, display the caption only. ASSISTANT:"
+        prompt = f"USER: <image>\nHere is a general description of the image: {basic_caption}. As you can see, there is also a {formatted_food_name} in the image. Based on the general description, please write an expressive caption for this image about the {formatted_food_name}. Please make sure the caption is not too long and not too short and must contain {formatted_food_name} in the caption. Also, display the caption only. ASSISTANT:"
     else:
-        prompt = f"USER: <image>\nHere is a general description of the image: {basic_caption}. Please write an expressive caption for this image. Please make sure the caption is not too long and not too short. Also, display the caption only. ASSISTANT:"
+        prompt = f"USER: <image>\nHere is a general description of the image: {basic_caption}. Please write an expressive caption for this image. Please make sure the caption is not too long and not too short and must contain {formatted_food_name} in the caption. Also, display the caption only. ASSISTANT:"
     
     inputs = llava_processor(prompt, image, return_tensors="pt")
     output = llava_model.generate(**inputs, max_new_tokens=max_length, do_sample=True, temperature=0.7, top_p=0.9)
@@ -725,37 +865,37 @@ def generate_food_caption_with_instructblip(image_path, basic_caption, food_name
     
     return caption
 
+    
+    return final_results
 
 if __name__ == "__main__":
-    	
+    with open('train_full_annotation_1.json', 'r') as f:
+        data = json.load(f)
 
-    with open("Food101/food-101/meta/train.json", "r") as f:
-        train = json.load(f)
+    all_data = []
 
-    classes = [k for k in train.keys()]
+    i = 1
+    for img_id, img_info in data.items():
+        print(f"Processing image {i}: ", img_id)
+        food_name = img_info['label']
+        img_path = img_info['filepath']
 
-    for num_cls, cls in enumerate(classes): 
-        print(f"\n test {num_cls+1}: caption test for {cls}")
-        first_15_images = train[cls][:5]
 
-        for i, img in enumerate(first_15_images):
-            img_id = img.split('/')[-1].split('.')[0]
-            img_path = f"Food101/food-101/images/{img}.jpg"
+        basic_caption = generate_caption(img_path)
+        complete_caption = enhance_food_caption_with_templates(basic_caption, food_name)
 
-            print(f"{i+1}: Processing {img_id} {cls}")
-            basic_caption = generate_caption(img_path, remove_noise=True)
-            enhanced_caption = enhance_food_caption_with_templates(basic_caption, cls, min_basic_length=16, max_total_length=128)
-            # prompt_blip2_caption = generate_food_caption_with_blip2_prompt(img_path, basic_caption, cls, remove_noise=True, max_length=256)
-            # prompt_llava_caption = generate_food_caption_with_llava(img_path, basic_caption, cls, remove_noise=True, max_length=128)
-            # prompt_instructblip_caption = generate_food_caption_with_instructblip(img_path, basic_caption, cls, remove_noise=True, max_length=128)
+        all_data.append({
+            img_id: {
+                'img_id': img_id,
+                'label': food_name,
+                'filepath': img_path,
+                'caption': complete_caption
+            }
+        })
+        i += 1
+        if i > 10:
+            break
 
-            print(f"Basic: {basic_caption}")
-            print(f"Template: {enhanced_caption}")
-            # print(f"BLIP2: {prompt_blip2_caption}")
-            # print(f"LLAVA: {prompt_llava_caption}")
-            # print(f"InstructBLIP: {prompt_instructblip_caption}")
-            with open('temp.txt', 'a') as f:
-                f.write(f"{img_id} {cls}\n basic: {basic_caption}\n template: {enhanced_caption} \n\n")
 
-    print("Done!")
-    
+    with open('train_complete_caption_1.json', 'w') as f:
+        json.dump(all_data, f)

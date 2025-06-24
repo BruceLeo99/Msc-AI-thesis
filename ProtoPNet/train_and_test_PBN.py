@@ -172,36 +172,36 @@ def validate(model, dataloader, class_specific=False, log=print, get_full_result
 
 
 def last_only(model, log=print):
-    for p in model.modules.features.parameters():
+    for p in model.module.features.parameters():
         p.requires_grad = False
-    for p in model.modules.add_on_layers.parameters():
+    for p in model.module.add_on_layers.parameters():
         p.requires_grad = False
-    model.modules.prototype_vectors.requires_grad = False
-    for p in model.modules.last_layer.parameters():
+    model.module.prototype_vectors.requires_grad = False
+    for p in model.module.last_layer.parameters():
         p.requires_grad = True
     
     log('\tlast layer')
 
 
 def warm_only(model, log=print):
-    for p in model.modules.features.parameters():
+    for p in model.module.features.parameters():
         p.requires_grad = False
-    for p in model.modules.add_on_layers.parameters():
+    for p in model.module.add_on_layers.parameters():
         p.requires_grad = True
-    model.modules.prototype_vectors.requires_grad = True
-    for p in model.modules.last_layer.parameters():
+    model.module.prototype_vectors.requires_grad = True
+    for p in model.module.last_layer.parameters():
         p.requires_grad = True
     
     log('\twarm')
 
 
 def joint(model, log=print):
-    for p in model.modules.features.parameters():
+    for p in model.module.features.parameters():
         p.requires_grad = True
-    for p in model.modules.add_on_layers.parameters():
+    for p in model.module.add_on_layers.parameters():
         p.requires_grad = True
-    model.modules.prototype_vectors.requires_grad = True
-    for p in model.modules.last_layer.parameters():
+    model.module.prototype_vectors.requires_grad = True
+    for p in model.module.last_layer.parameters():
         p.requires_grad = True
     
     log('\tjoint')
