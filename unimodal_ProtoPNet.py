@@ -39,7 +39,6 @@ def train_protopnet(
         num_epochs=50,
         learning_rate=0.0001,
         batch_size=32,
-        num_out_channels=128,
         lr_adjustment_rate=0,
         lr_adjustment_mode='none',
         lr_adjustment_patience=0,
@@ -72,11 +71,17 @@ def train_protopnet(
     ### LOAD MODEL ###
 
     num_classes = train_data.get_num_classes()
+    if base_architecture == 'vgg16' or base_architecture == 'vgg19' or base_architecture == 'densenet121' or base_architecture == 'densenet161':
+        num_channels = 128
+    elif  base_architecture == 'resnet34':
+        num_channels = 256
+    else:
+        num_channels = 512
 
     if num_prototypes == 1:
-        prototype_shape = (num_classes*num_prototypes, num_out_channels, 7, 7)
+        prototype_shape = (num_classes*num_prototypes, num_channels, 7, 7)
     else:
-        prototype_shape = (num_classes*num_prototypes, num_out_channels, 1, 1)
+        prototype_shape = (num_classes*num_prototypes, num_channels, 1, 1)
 
     model = construct_PPNet(base_architecture=base_architecture, 
                             pretrained=True, 
@@ -282,7 +287,7 @@ def train_protopnet(
             'l1': settings.coefs['l1']
         }
         
-        for last_epoch in range(1): # Set to 20 by default in settings.py
+        for last_epoch in range(5): 
             last_only(model)
             mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
             train(model, 
@@ -322,7 +327,16 @@ def train_protopnet(
     #_____________________________________________________________________________________________________# 
 
     if best_model_state is not None:
-        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        model_config = {
+            'base_architecture': base_architecture,
+            'pretrained': True,
+            'prototype_shape': prototype_shape,
+            'num_classes': num_classes,
+            'add_on_layers_type': 'bottleneck',
+            'img_size': 224
+        }
+
+        torch.save({'model_config': model_config, 'state_dict': best_model_state}, f"{best_models_foldername}/{model_name}_best.pth")
         print(f"Final best model confirmed saved: {model_name}_best.pth")
 
     
@@ -333,12 +347,10 @@ def test_protopnet(model_path,
                    experiment_name, 
                    test_data, 
                    device, 
-                   num_prototypes=10,
-                   base_architecture='vgg16',
                    class_specific=True,
                    get_full_results=True,
                    save_result=False, 
-                   verbose=False,
+                   verbose=True,
                    use_l1_mask=False,
                    coefs=None,
                    result_foldername='results'
@@ -348,30 +360,37 @@ def test_protopnet(model_path,
 
     if not os.path.exists(result_foldername):
         os.makedirs(result_foldername)
-
-    num_classes = test_data.get_num_classes()
-    prototype_shape = (num_classes*num_prototypes, 512, 1, 1)
-
-    model = construct_PPNet(base_architecture=base_architecture, 
-                            pretrained=True, 
-                            prototype_shape=prototype_shape, 
-                            num_classes=num_classes,
-                            add_on_layers_type='bottleneck',
-                            img_size=224)
+    
+    if not os.path.exists(f"{result_foldername}/classification_reports"):
+        os.makedirs(f"{result_foldername}/classification_reports")
+    
+    if not os.path.exists(f"{result_foldername}/confusion_matrices"):
+        os.makedirs(f"{result_foldername}/confusion_matrices")
 
     # Load state dict and handle DataParallel prefix
-    state_dict = torch.load(model_path, map_location=device)
+    model_checkpoint = torch.load(model_path, map_location=device)
+    model_config = model_checkpoint['model_config']
+    state_dict = model_checkpoint['state_dict']
 
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
         if k.startswith('module.'):
-            name = k[7:] # remove 'module.' prefix
+            name = k[7:] 
         else:
             name = k
         new_state_dict[name] = v
-        
+
+    model = construct_PPNet(
+    base_architecture=model_config['base_architecture'],
+    pretrained=model_config['pretrained'],
+    prototype_shape=model_config['prototype_shape'],
+    num_classes=model_config['num_classes'],
+    add_on_layers_type=model_config['add_on_layers_type'],
+    img_size=model_config['img_size'])
+      
     model.load_state_dict(new_state_dict)
     model = model.to(device)
+
     # Always wrap in DataParallel since ProtoPNet code expects model.module access
     model = torch.nn.DataParallel(model)
     if torch.cuda.device_count() > 1:
@@ -382,7 +401,7 @@ def test_protopnet(model_path,
     test_loader = DataLoader(test_data, shuffle=False)
 
     print("Starting model testing...")
-    label_to_idx = test_data.get_dataset_labels()
+    label_to_idx = test_data.label_name_idx
     print(f"Label names and indices: {label_to_idx}")
     
     # Create reverse mapping from index to name

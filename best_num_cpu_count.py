@@ -1,5 +1,5 @@
 ### This is a temporal file to find the best number of CPU cores to use for data loading
-from MSCOCO_preprocessing_local import *
+from outdated_models.MSCOCO_preprocessing_local import *
 from unimodal_ProtoPNet import *
 from vgg16_model import *
 from resnet18_model import *

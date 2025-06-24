@@ -310,6 +310,13 @@ def test_resnet34(model_path,
         if k.startswith('module.'):
            new_state_dict[k.replace('module.', '')] = v
            module_replaced = True
+            
+        if k.startswith('features.'):
+            new_k = k[len('features.'):]
+        else:
+            new_k = k
+        new_state_dict[new_k] = v
+    
 
     if module_replaced:
         model.load_state_dict(new_state_dict)
@@ -331,7 +338,7 @@ def test_resnet34(model_path,
     confusion_matrix_for_each_individual = {}
 
     print("Starting model testing...")
-    label_to_idx = test_data.get_dataset_labels()
+    label_to_idx = test_data.label_name_idx
     print(f"Label names and indices: {label_to_idx}")
     
     # Create reverse mapping from index to name
@@ -409,11 +416,12 @@ def test_resnet34(model_path,
     classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
 
-    print("\nClassification Report:")
-    print(classi_report)
+    if verbose:
+        print("\nClassification Report:")
+        print(classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys())))
 
-    print("\nConfusion Matrix:")
-    print(conf_matrix)
+        print("\nConfusion Matrix:")
+        print(confusion_matrix(y_true, y_pred))
 
 
     test_result = {

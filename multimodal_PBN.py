@@ -177,11 +177,12 @@ def train_multimodal_PBN(
     ### LOAD MODEL ###
 
     num_classes = train_data.get_num_classes()
+    num_channels = 2048
 
     if num_prototypes == 1:
-        prototype_shape = (num_classes*num_prototypes, 512, 7, 7)
+        prototype_shape = (num_classes*num_prototypes, num_channels, 7, 7)
     else:
-        prototype_shape = (num_classes*num_prototypes, 512, 1, 1)
+        prototype_shape = (num_classes*num_prototypes, num_channels, 1, 1)
 
     model = VisualBertPPNet(num_prototypes=num_prototypes, num_classes=num_classes)
     
@@ -257,8 +258,8 @@ def train_multimodal_PBN(
         
         # warm_optimizer using settings.warm_optimizer_lrs
         warm_optimizer = optim.Adam([
-            {'params': model.module.visual_projection.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers'], 'weight_decay': 1e-3},  # ✅ Use visual_projection
-            {'params': model.module.last_layer.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers'], 'weight_decay': 1e-3},        # ✅ Add last_layer  
+            {'params': model.module.visual_projection.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers'], 'weight_decay': 1e-3},  
+            {'params': model.module.last_layer.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers'], 'weight_decay': 1e-3},        
             {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs['prototype_vectors']}
         ])
 
@@ -384,7 +385,7 @@ def train_multimodal_PBN(
             'l1': settings.coefs['l1']
         }
         
-        for last_epoch in range(1): 
+        for last_epoch in range(5): 
             last_only_multimodal(model)
             mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
             train(model, 
@@ -425,7 +426,12 @@ def train_multimodal_PBN(
     #_____________________________________________________________________________________________________# 
 
     if best_model_state is not None:
-        torch.save(best_model_state, f"{best_models_foldername}/{model_name}_best.pth")
+        model_config = {
+            'num_prototypes': num_prototypes,
+            'num_classes': num_classes,
+            'prototype_shape': prototype_shape
+        }
+        torch.save({'model_config': model_config, 'state_dict': best_model_state}, f"{best_models_foldername}/{model_name}_best.pth")
         print(f"Final best model confirmed saved: {model_name}_best.pth")
 
     
@@ -436,11 +442,10 @@ def test_multimodal_PBN(model_path,
                    experiment_name, 
                    test_data, 
                    device, 
-                   num_prototypes=10,
                    class_specific=True,
                    get_full_results=True,
                    save_result=False, 
-                   verbose=False,
+                   verbose=True,
                    use_l1_mask=False,
                    coefs=None,
                    result_foldername='results'
@@ -451,22 +456,26 @@ def test_multimodal_PBN(model_path,
     if not os.path.exists(result_foldername):
         os.makedirs(result_foldername)
 
-    num_classes = test_data.get_num_classes()
-
-    # First create the model
-    model = VisualBertPPNet(num_prototypes=num_prototypes, num_classes=num_classes)
+    if not os.path.exists(f"{result_foldername}/classification_reports"):
+        os.makedirs(f"{result_foldername}/classification_reports")
+    
+    if not os.path.exists(f"{result_foldername}/confusion_matrices"):
+        os.makedirs(f"{result_foldername}/confusion_matrices")
 
     # Load state dict and handle DataParallel prefix
-    state_dict = torch.load(model_path, map_location=device)
+    model_checkpoint = torch.load(model_path, map_location=device)
+    model_config = model_checkpoint['model_config']
+    state_dict = model_checkpoint['state_dict']
+
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
         if k.startswith('module.'):
-            name = k[7:] # remove 'module.' prefix
+            name = k[7:] 
         else:
             name = k
         new_state_dict[name] = v
-        
-    # Now load the state dict
+    
+    model = VisualBertPPNet(num_prototypes=model_config['num_prototypes'], num_classes=model_config['num_classes'])
     model.load_state_dict(new_state_dict)
     model = model.to(device)
     
@@ -480,7 +489,7 @@ def test_multimodal_PBN(model_path,
     test_loader = DataLoader(test_data, batch_size=32, shuffle=False, collate_fn=collate_fn)
 
     print("Starting model testing...")
-    label_to_idx = test_data.get_dataset_labels()
+    label_to_idx = test_data.label_name_idx
     print(f"Label names and indices: {label_to_idx}")
     
     # Create reverse mapping from index to name
@@ -595,8 +604,8 @@ def test_multimodal_PBN(model_path,
             print(f"Avg Separation Cost: {test_results['avg_separation_cost']:.4f}")
         print(f"\nClassification Report:")
         print(classification_report(y_true, y_pred, 
-                                 labels=range(num_classes),
-                                 target_names=[idx_to_label[i] for i in range(num_classes)]))
+                                 labels=range(model_config['num_classes']),
+                                 target_names=[idx_to_label[i] for i in range(model_config['num_classes'])]))
         print("\nConfusion Matrix:")
         print(conf_matrix)
 

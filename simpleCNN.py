@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import StepLR, CyclicLR
 from sklearn.model_selection import train_test_split, KFold
 import time
 import os
-from MSCOCO_preprocessing_local import *
+from outdated_models.MSCOCO_preprocessing_local import *
 import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix
 import json

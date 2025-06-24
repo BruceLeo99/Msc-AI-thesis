@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
 from sklearn.model_selection import train_test_split, KFold
 import time
-from MSCOCO_preprocessing_local import *
+from outdated_models.MSCOCO_preprocessing_local import *
 import pandas as pd
 from torch.utils.data import random_split, Subset
 from sklearn.metrics import classification_report, confusion_matrix
