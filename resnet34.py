@@ -349,7 +349,8 @@ def test_resnet34(model_path,
         for idx, (images, labels) in enumerate(test_loader):
             image_id = test_data.get_image_id(idx)
             image_label = test_data.get_image_label(idx)
-            image_url = test_data.get_image_url(idx)
+            
+            image_url = test_data.get_image_filename(idx)
             image_caption = test_data.get_image_caption(idx)
             images = images.to(device)
             labels = labels.to(device)
@@ -413,12 +414,12 @@ def test_resnet34(model_path,
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
-    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
 
     if verbose:
         print("\nClassification Report:")
-        print(classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys())))
+        print(classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys())))
 
         print("\nConfusion Matrix:")
         print(confusion_matrix(y_true, y_pred))

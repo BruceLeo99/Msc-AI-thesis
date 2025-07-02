@@ -51,8 +51,8 @@ class VisualBertPPNet(nn.Module):
     """
     def __init__(self,
                  ckpt='uclanlp/visualbert-vqa-coco-pre',
-                 num_prototypes=10,
-                 num_classes=20):
+                 num_prototypes_per_class=1,  # Changed: now means prototypes per class
+                 num_classes=101):
         super().__init__()
         # Load pretrained VGG16
         vgg16 = torch.hub.load('pytorch/vision:v0.10.0', 'vgg16', pretrained=True)
@@ -62,21 +62,26 @@ class VisualBertPPNet(nn.Module):
         self.encoder = VisualBertModel.from_pretrained(ckpt, hidden_act='relu')
         hid = self.encoder.config.hidden_size      
         
-        # Initialize prototype-related attributes
-        self.num_prototypes = num_prototypes
-        self.num_classes = num_classes
-        self.prototype_shape = (num_prototypes, hid)
-        self.prototype_vectors = nn.Parameter(torch.randn(num_prototypes, hid))
+        # Calculate total prototypes following original ProtoPNet convention
+        total_prototypes = num_classes * num_prototypes_per_class
         
-        # Initialize prototype_class_identity matrix as a registered buffer
+        # Initialize prototype-related attributes
+        self.num_prototypes = total_prototypes  # Total prototypes
+        self.num_prototypes_per_class = num_prototypes_per_class  # Store for reference
+        self.num_classes = num_classes
+        self.prototype_shape = (total_prototypes, hid)
+        self.prototype_vectors = nn.Parameter(torch.randn(total_prototypes, hid))
+        
+        # Initialize prototype_class_identity matrix correctly
         # This way it will be automatically moved to the correct device with the model
-        prototype_class_identity = torch.zeros(num_prototypes, num_classes)
-        num_prototypes_per_class = num_prototypes // num_classes
+        prototype_class_identity = torch.zeros(total_prototypes, num_classes)
         for j in range(num_classes):
-            prototype_class_identity[j * num_prototypes_per_class:(j + 1) * num_prototypes_per_class, j] = 1
+            start_idx = j * num_prototypes_per_class
+            end_idx = (j + 1) * num_prototypes_per_class
+            prototype_class_identity[start_idx:end_idx, j] = 1
         self.register_buffer('prototype_class_identity', prototype_class_identity)
         
-        self.last_layer = nn.Linear(num_prototypes,    # 1-to-1 with prototypes
+        self.last_layer = nn.Linear(total_prototypes,    # Use total prototypes
                                     num_classes,
                                     bias=False)
         
@@ -87,6 +92,20 @@ class VisualBertPPNet(nn.Module):
             nn.ReLU(),
             nn.Linear(512, 2048)  # Project to VisualBERT's expected dimension
         )
+        
+        # Better prototype initialization (smaller scale to match expected feature scale)
+        with torch.no_grad():
+            self.prototype_vectors.data.normal_(0, 0.1)  # Much smaller standard deviation
+        
+        # Debug information
+        print(f"VisualBertPPNet initialized:")
+        print(f"  - Prototypes per class: {num_prototypes_per_class}")
+        print(f"  - Total prototypes: {total_prototypes}")
+        print(f"  - Number of classes: {num_classes}")
+        print(f"  - Prototype shape: {self.prototype_shape}")
+        print(f"  - VisualBERT hidden size: {hid}")
+        print(f"  - Prototype class identity shape: {prototype_class_identity.shape}")
+        print(f"  - Prototype vectors initialized with std=0.1")
 
     def forward(self, batch):
         # Handle visual embeddings
@@ -137,15 +156,15 @@ def train_multimodal_PBN(
         val_data,
         model_name,
         device,
-        num_prototypes=10,
+        num_prototypes_per_class=1,
         num_epochs=50,
         learning_rate=0.0001,
         batch_size=32,
         lr_adjustment_rate=0,
         lr_adjustment_mode='none',
         lr_adjustment_patience=0,
-        use_warmup=True,
-        convex_optim=True,
+        use_warmup=None,
+        convex_optim=None,
         save_result=False,
         early_stopping_patience=10,
         class_specific=True,
@@ -177,14 +196,10 @@ def train_multimodal_PBN(
     ### LOAD MODEL ###
 
     num_classes = train_data.get_num_classes()
-    num_channels = 2048
-
-    if num_prototypes == 1:
-        prototype_shape = (num_classes*num_prototypes, num_channels, 7, 7)
-    else:
-        prototype_shape = (num_classes*num_prototypes, num_channels, 1, 1)
-
-    model = VisualBertPPNet(num_prototypes=num_prototypes, num_classes=num_classes)
+    # Note: num_channels and spatial prototype_shape are not used in multimodal ProtoPNet
+    # since prototypes live in VisualBERT semantic space, not spatial CNN feature maps
+    
+    model = VisualBertPPNet(num_prototypes_per_class=num_prototypes_per_class, num_classes=num_classes)
     
     model = model.to(device)
     # Always wrap in DataParallel since ProtoPNet code expects model.module access
@@ -252,7 +267,9 @@ def train_multimodal_PBN(
     #_____________________________________________________________________________________________________# 
 
     
-    if use_warmup:
+    if use_warmup is None:
+        print("Stage 1: Warm-up training: skipped")
+    else:
         ### STAGE 1: WARM-UP TRAINING - Using settings.num_warm_epochs and settings.warm_optimizer_lrs ###
         print(f"Stage 1: Warm-up training ({settings.num_warm_epochs} epochs)")
         
@@ -262,9 +279,14 @@ def train_multimodal_PBN(
             {'params': model.module.last_layer.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers'], 'weight_decay': 1e-3},        
             {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs['prototype_vectors']}
         ])
+    
+        if use_warmup == "default":
+            num_warm_epochs = settings.num_warm_epochs
+        else:
+            num_warm_epochs = int(use_warmup)
 
-        for epoch in range(settings.num_warm_epochs): # Set to 5 by default in settings.py
-            print(f"Warm-up Epoch {epoch+1}/{settings.num_warm_epochs}")
+        for epoch in range(num_warm_epochs):
+            print(f"Warm-up Epoch {epoch+1}/{num_warm_epochs} (using {use_warmup} settings)")
 
             # Clear GPU memory before each epoch
             if torch.cuda.is_available():
@@ -296,8 +318,7 @@ def train_multimodal_PBN(
             if save_result:
                 with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                     f.write(f"warm,{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist}\n")
-    else:
-        print("Stage 1: Warm-up training: skipped")
+
 
     ### END STAGE 1 ###
     #_____________________________________________________________________________________________________# 
@@ -370,7 +391,9 @@ def train_multimodal_PBN(
     #_____________________________________________________________________________________________________# 
 
     ### STAGE 3: LAST LAYER OPTIMIZATION - Using settings.last_layer_optimizer_lr ###
-    if convex_optim:
+    if convex_optim is None:
+        print("Stage 3: Last layer optimization: skipped")
+    else:
         print("\nStage 3: Last layer optimization")
 
         last_layer_optimizer = optim.Adam([
@@ -385,7 +408,12 @@ def train_multimodal_PBN(
             'l1': settings.coefs['l1']
         }
         
-        for last_epoch in range(5): 
+        if convex_optim == "default":
+            num_last_epochs = 5
+        else:
+            num_last_epochs = int(convex_optim)
+
+        for last_epoch in range(num_last_epochs): 
             last_only_multimodal(model)
             mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
             train(model, 
@@ -419,17 +447,16 @@ def train_multimodal_PBN(
             if epochs_without_improvement_last >= early_stopping_patience:
                 print(f"Early stopping triggered at epoch {epoch+1} with best last accuracy {best_last_accuracy:.2f} at epoch {best_last_epoch}")
                 break
-    else:
-        print("Stage 3: Last layer optimization: skipped")
 
     ### END STAGE 3 ###
     #_____________________________________________________________________________________________________# 
 
     if best_model_state is not None:
         model_config = {
-            'num_prototypes': num_prototypes,
-            'num_classes': num_classes,
-            'prototype_shape': prototype_shape
+            'num_prototypes': model.module.num_prototypes,  # Total prototypes
+            'num_prototypes_per_class': model.module.num_prototypes_per_class,  # Prototypes per class
+            'num_classes': model.module.num_classes,
+            'prototype_shape': model.module.prototype_shape
         }
         torch.save({'model_config': model_config, 'state_dict': best_model_state}, f"{best_models_foldername}/{model_name}_best.pth")
         print(f"Final best model confirmed saved: {model_name}_best.pth")
@@ -475,7 +502,17 @@ def test_multimodal_PBN(model_path,
             name = k
         new_state_dict[name] = v
     
-    model = VisualBertPPNet(num_prototypes=model_config['num_prototypes'], num_classes=model_config['num_classes'])
+    # Calculate prototypes per class from total prototypes
+    total_prototypes = model_config['num_prototypes']
+    num_classes = model_config['num_classes']
+    
+    # Use explicit prototypes_per_class if available, otherwise calculate
+    if 'num_prototypes_per_class' in model_config:
+        num_prototypes_per_class = model_config['num_prototypes_per_class']
+    else:
+        num_prototypes_per_class = total_prototypes // num_classes
+    
+    model = VisualBertPPNet(num_prototypes_per_class=num_prototypes_per_class, num_classes=num_classes)
     model.load_state_dict(new_state_dict)
     model = model.to(device)
     
@@ -590,6 +627,14 @@ def test_multimodal_PBN(model_path,
             'avg_separation_cost': total_avg_separation_cost / n_batches
         })
 
+
+    individual_prediction_results = dict()
+    for test_image_id, test_label, test_pred in zip(y_img_ids, y_true, y_pred):
+        individual_prediction_results[test_image_id] = {
+            'true_label': idx_to_label[test_label],
+            'pred_label': idx_to_label[test_pred]
+        }
+
     # Generate classification report and confusion matrix
     classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
@@ -611,10 +656,19 @@ def test_multimodal_PBN(model_path,
 
     if save_result:
         results = {
-            'test_results': test_results,
+            'experiment_name': experiment_name,
+            'pth_filepath': model_path,
+            'label_to_idx': label_to_idx,
+            'idx_to_label': idx_to_label,
+            'accuracy': test_results['accuracy'],
+            'loss': test_results['cross_entropy'],
+            'cluster_cost': test_results['cluster_cost'],
+            'separation_cost': test_results['separation_cost'],
+            'avg_separation_cost': test_results['avg_separation_cost'],
             'classification_report': classi_report,
+            'individual_prediction_results': individual_prediction_results,
             'confusion_matrix': conf_matrix.tolist(),
-            'confusion_mapping': confusion_mapping
+            'confusion_matrix_for_each_individual': confusion_mapping
         }
         
         with open(f"{result_foldername}/{experiment_name}_test_results.json", "w") as f:
@@ -629,8 +683,8 @@ def test_multimodal_PBN(model_path,
         pd.DataFrame(classi_report).T.to_csv(
             f"{result_foldername}/classification_reports/{experiment_name}_classification_report.csv")
         pd.DataFrame(conf_matrix,
-                    index=[idx_to_label[i] for i in range(num_classes)],
-                    columns=[idx_to_label[i] for i in range(num_classes)]).to_csv(
+                    index=[idx_to_label[i] for i in range(model_config["num_classes"])],
+                    columns=[idx_to_label[i] for i in range(model_config["num_classes"])]).to_csv(
                         f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_results

@@ -24,17 +24,24 @@ from transformers import AutoTokenizer
 # pylab.rcParams['figure.figsize'] = (8.0, 10.0)
 
 class Food101Dataset(Dataset):
-    def __init__(self, data, transform=None, target_transform=None, load_captions=False, fix_label_mapping=True):
+    def __init__(self, data, transform=None, target_transform=None, load_captions=False, fix_label_mapping=True, caption_type="blip2"):
 
         self.data = data
         self.transform = transform
         self.target_transform = target_transform
         self.load_captions = load_captions
+        self.caption_type = caption_type
 
         self.img_ids = [k for k in data.keys()]
         self.img_filenames = dict(zip(self.img_ids, [data[k]["filepath"] for k in self.img_ids]))
         self.img_labels = dict(zip(self.img_ids, [data[k]["label"] for k in self.img_ids]))
-        self.img_captions = dict(zip(self.img_ids, [data[k]["caption"] for k in self.img_ids]))
+
+        if self.caption_type == "blip":
+            self.img_captions = dict(zip(self.img_ids, [data[k]["blip_caption"] for k in self.img_ids]))
+        elif self.caption_type == "blip2":
+            self.img_captions = dict(zip(self.img_ids, [data[k]["blip2_caption"] for k in self.img_ids]))
+        else:
+            raise ValueError(f"Caption type {self.caption_type} not supported.")
 
         self.dataset_length = len(self.data)
         self.all_labels = list(self.img_labels.values())
@@ -87,6 +94,9 @@ class Food101Dataset(Dataset):
     
     def get_image_caption(self, idx):
         return self.img_captions[self.img_ids[idx]]
+    
+    def get_image_caption_by_id(self, img_id):
+        return self.img_captions[img_id]
     
     def get_num_classes(self):
         return len(self.unique_labels)
@@ -155,7 +165,7 @@ class Food101Dataset(Dataset):
             return image, label
         
 
-def lazy_load_customized(load_captions, transform='vgg16', target_transform='integer', fix_label_mapping=True):
+def lazy_load_customized(load_captions, transform='vgg16', target_transform='integer', fix_label_mapping=True, caption_type="blip2"):
 
     with open("Food101/food-101/meta/train_full_annotation_customize.json", "r") as f:
         complete_data_train = json.load(f)
@@ -170,13 +180,13 @@ def lazy_load_customized(load_captions, transform='vgg16', target_transform='int
     complete_data_val = {k: v for d in complete_data_val for k, v in d.items()}
     complete_data_test = {k: v for d in complete_data_test for k, v in d.items()}
 
-    train_dataset = Food101Dataset(complete_data_train, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions)
-    val_dataset = Food101Dataset(complete_data_val, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions)
-    test_dataset = Food101Dataset(complete_data_test, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions)
+    train_dataset = Food101Dataset(complete_data_train, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions, caption_type=caption_type)
+    val_dataset = Food101Dataset(complete_data_val, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions, caption_type=caption_type)
+    test_dataset = Food101Dataset(complete_data_test, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions, caption_type=caption_type)
 
     return train_dataset, val_dataset, test_dataset
 
-def lazy_load_original(load_captions, transform='vgg16', target_transform='integer', fix_label_mapping=True):
+def lazy_load_original(load_captions, transform='vgg16', target_transform='integer', fix_label_mapping=True, caption_type="blip2"):
     dataDir = "Food101/food-101/meta/"
 
     with open(os.path.join(dataDir, "train_full_annotation.json"), "r") as f:
@@ -187,8 +197,8 @@ def lazy_load_original(load_captions, transform='vgg16', target_transform='integ
     complete_data_train = {k: v for d in train_data for k, v in d.items()}
     complete_data_test = {k: v for d in test_data for k, v in d.items()}
 
-    train_dataset = Food101Dataset(complete_data_train, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions)
-    test_dataset = Food101Dataset(complete_data_test, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions)
+    train_dataset = Food101Dataset(complete_data_train, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions, caption_type=caption_type)
+    test_dataset = Food101Dataset(complete_data_test, transform=transform, target_transform=target_transform, fix_label_mapping=fix_label_mapping, load_captions=load_captions, caption_type=caption_type)
 
     return train_dataset, test_dataset
 

@@ -42,8 +42,8 @@ def train_protopnet(
         lr_adjustment_rate=0,
         lr_adjustment_mode='none',
         lr_adjustment_patience=0,
-        use_warmup=True,
-        convex_optim=True,
+        use_warmup=None,
+        convex_optim=None,
         save_result=False,
         early_stopping_patience=10,
         base_architecture='vgg16',
@@ -71,12 +71,13 @@ def train_protopnet(
     ### LOAD MODEL ###
 
     num_classes = train_data.get_num_classes()
+    # Following original ProtoPNet paper specifications for different architectures
     if base_architecture == 'vgg16' or base_architecture == 'vgg19' or base_architecture == 'densenet121' or base_architecture == 'densenet161':
-        num_channels = 128
-    elif  base_architecture == 'resnet34':
-        num_channels = 256
+        num_channels = 128  
+    # elif base_architecture == 'resnet34':
+    #     num_channels = 256  
     else:
-        num_channels = 512
+        num_channels = 512  
 
     if num_prototypes == 1:
         prototype_shape = (num_classes*num_prototypes, num_channels, 7, 7)
@@ -154,7 +155,9 @@ def train_protopnet(
     print("Starting ProtoPNet training with original paper's three-stage process...")
     
     ### STAGE 1: WARM-UP TRAINING - Using settings.num_warm_epochs and settings.warm_optimizer_lrs ###
-    if use_warmup:
+    if use_warmup is None:
+        print("Stage 1: Warm-up training: skipped")
+    else:
         print(f"Stage 1: Warm-up training ({settings.num_warm_epochs} epochs)")
         
         # warm_optimizer using settings.warm_optimizer_lrs
@@ -163,9 +166,13 @@ def train_protopnet(
             {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs['prototype_vectors']}
         ])
         
-        for epoch in range(settings.num_warm_epochs): # Set to 5 by default in settings.py
+        if use_warmup == "default":
+            num_warm_epochs = settings.num_warm_epochs
+        else:
+            num_warm_epochs = int(use_warmup)
 
-            print(f"Warm-up Epoch {epoch+1}/{settings.num_warm_epochs}")
+        for epoch in range(num_warm_epochs):
+            print(f"Warm-up Epoch {epoch+1}/{num_warm_epochs} (using {use_warmup} settings)")
 
             # Clear GPU memory before each epoch
             if torch.cuda.is_available():
@@ -197,9 +204,6 @@ def train_protopnet(
             if save_result:
                 with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                     f.write(f"warm,{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist}\n")
-
-    else:
-        print("Stage 1: Warm-up training: skipped")
 
     ### END STAGE 1 ###
     #_____________________________________________________________________________________________________# 
@@ -271,7 +275,9 @@ def train_protopnet(
     #_____________________________________________________________________________________________________# 
 
     ### STAGE 3: LAST LAYER OPTIMIZATION - Using settings.last_layer_optimizer_lr ###
-    if convex_optim:
+    if convex_optim is None:
+        print("Stage 3: Last layer optimization: skipped")
+    else:
     
         print("\nStage 3: Last layer optimization")
 
@@ -287,7 +293,12 @@ def train_protopnet(
             'l1': settings.coefs['l1']
         }
         
-        for last_epoch in range(5): 
+        if convex_optim == "default":
+            num_last_epochs = 5
+        else:
+            num_last_epochs = int(convex_optim)
+
+        for last_epoch in range(num_last_epochs): 
             last_only(model)
             mode, running_time, train_loss, cluster_cost, separation_cost, avg_cluster_cost, train_accuracy, l1, p_avg_pair_dist = \
             train(model, 
@@ -321,8 +332,7 @@ def train_protopnet(
             if epochs_without_improvement_last >= early_stopping_patience:
                 print(f"Early stopping triggered at epoch {epoch+1} with best last accuracy {best_last_accuracy:.2f} at epoch {best_last_epoch}")
                 break
-    else:
-        print("Stage 3: Last layer optimization: skipped")
+
     ### END STAGE 3 ###
     #_____________________________________________________________________________________________________# 
 
@@ -389,7 +399,6 @@ def test_protopnet(model_path,
     img_size=model_config['img_size'])
       
     model.load_state_dict(new_state_dict)
-    model = model.to(device)
 
     # Always wrap in DataParallel since ProtoPNet code expects model.module access
     model = torch.nn.DataParallel(model)
@@ -505,12 +514,12 @@ def test_protopnet(model_path,
     label_names = [idx_to_label[idx] for idx in unique_labels]
 
     # Generate classification report and confusion matrix using integer labels
-    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
     
     if verbose:
         print("\nClassification Report:")
-        print(classification_report(y_true, y_pred, labels=unique_labels, target_names=label_names))
+        print(classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys())))
         print("\nConfusion Matrix:")
         print(conf_matrix)
 
@@ -524,13 +533,15 @@ def test_protopnet(model_path,
     results = {
         'experiment_name': experiment_name,
         'pth_filepath': model_path,
+        'label_to_idx': label_to_idx,
+        'idx_to_label': idx_to_label,
         'accuracy': test_accuracy,
         'loss': test_loss,
         'cluster_cost': test_cluster_cost,
         'separation_cost': test_separation_cost,
         'avg_separation_cost': test_avg_separation_cost,
         'l1': test_l1,
-        'confusion_matrix_images': confusion_mapping,
+        'confusion_matrix_for_each_individual': confusion_mapping,
         'individual_prediction_results': individual_prediction_results,
         'classification_report': classi_report,
     }

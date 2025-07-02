@@ -12,7 +12,6 @@ from torch.optim.lr_scheduler import StepLR, CyclicLR
 from sklearn.model_selection import train_test_split, KFold
 import time
 import os
-from outdated_models.MSCOCO_preprocessing_local import *
 import pandas as pd
 from torch.utils.data import random_split, Subset
 from sklearn.metrics import classification_report, confusion_matrix
@@ -123,7 +122,7 @@ def train_vgg16(
         learning_rate = 0.0001,
         batch_size = 32,
         lr_adjustment_rate = 0.0001,
-        lr_adjustment_mode = 'decrease',
+        lr_adjustment_mode = None,
         lr_adjustment_patience = 5,
         save_result = False,
         early_stopping_patience = 10,
@@ -308,18 +307,22 @@ def train_vgg16(
             # Increase learning rate every 10 epochs 5 times in total. 
             # After 5 times, if the model still does not improve, stop training.
             if epochs_without_improvement >= early_stopping_patience:
-                if lr_adjustments_made < lr_adjustment_patience:
-                    if lr_adjustment_mode == 'increase':
-                        learning_rate += lr_adjustment_rate
-                    elif lr_adjustment_mode == 'decrease':
-                        learning_rate -= lr_adjustment_rate
-                    current_lr = learning_rate  # Update current learning rate
-                    # Update optimizer learning rate
-                    for param_group in optimizer.param_groups:
-                        param_group['lr'] = learning_rate
-                    lr_adjustments_made += 1
-                    epochs_without_improvement = 0
-                    print(f"Learning rate increased to {learning_rate}")
+
+                if lr_adjustment_mode is not None:
+
+                    if lr_adjustments_made < lr_adjustment_patience:
+                        if lr_adjustment_mode == 'increase':
+                            learning_rate += lr_adjustment_rate
+                        elif lr_adjustment_mode == 'decrease':
+                            learning_rate -= lr_adjustment_rate
+                        current_lr = learning_rate  # Update current learning rate
+                        # Update optimizer learning rate
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = learning_rate
+                        lr_adjustments_made += 1
+                        epochs_without_improvement = 0
+                        print(f"Learning rate increased to {learning_rate}")
+
                 else:
                     print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
                     break
@@ -656,7 +659,7 @@ def test_vgg16(model_path,
     confusion_matrix_for_each_individual = {}
 
     print("Starting model testing...")
-    label_to_idx = test_data.get_dataset_labels()
+    label_to_idx = test_data.label_name_idx
     print(f"Label names and indices: {label_to_idx}")
     
     # Create reverse mapping from index to name
@@ -667,7 +670,7 @@ def test_vgg16(model_path,
         for idx, (images, labels) in enumerate(test_loader):
             image_id = test_data.get_image_id(idx)
             image_label = test_data.get_image_label(idx)
-            image_url = test_data.get_image_url(idx)
+            image_url = test_data.get_image_filename(idx)
             image_caption = test_data.get_image_caption(idx)
             images = images.to(device)
             labels = labels.to(device)
@@ -696,7 +699,7 @@ def test_vgg16(model_path,
                 'pred_label': idx_to_label[predicted.item()],
                 'correct': labels.item() == predicted.item()
             }
-            confusion_matrix_for_each_individual[cell_key].append(image_info)
+            confusion_matrix_for_each_individual[cell_key].append(image_id)
 
             if verbose:
                 print(f"Image ID: {image_id}, Image Label: {image_label}, Image URL: {image_url}, Image Caption: {image_caption}")
@@ -723,7 +726,7 @@ def test_vgg16(model_path,
     label_names = [idx_to_label[idx] for idx in unique_labels]
 
     # Generate classification report and confusion matrix using integer labels
-    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys()), output_dict=True)
     conf_matrix = confusion_matrix(y_true, y_pred)
 
     print(f"\n{'='*60}")
@@ -732,7 +735,7 @@ def test_vgg16(model_path,
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
 
     print("\nClassification Report:")
-    print(classification_report(y_true, y_pred, labels=unique_labels, target_names=label_names))
+    print(classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys())))
 
     print("\nConfusion Matrix:")
     print(conf_matrix)
@@ -743,7 +746,7 @@ def test_vgg16(model_path,
         'label_to_idx': label_to_idx,
         'idx_to_label': idx_to_label,
         'test_accuracy': test_accuracy,
-        'confusion_matrix_for_each_individual': confusion_matrix_for_each_individual,
+        'confusion_matrix_images': confusion_matrix_for_each_individual,
         'individual_prediction_results': individual_prediction_results
     }
 
@@ -767,152 +770,6 @@ def test_vgg16(model_path,
         df_confusion_matrix.to_csv(f"{result_foldername}/confusion_matrices/{experiment_name}_confusion_matrix.csv")
 
     return test_result
-
-# if __name__ == "__main__":
-
-
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-#     test_data = MSCOCOCustomDataset(transform='vgg16', target_transform='integer', load_from_json="dataset_infos/test_data_20classes.json")
-
-#     test_vgg16(
-#     model_path="{result_foldername}best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
-#     experiment_name="vgg16_classification_report_debug1",
-#     test_data=test_data,
-#     device=device,
-#     save_result=True,
-#     verbose=True
-#     )
-
-#     test_vgg16(
-#     model_path="{result_foldername}best_models/vgg16_baseline_20_categories_0.0001lr_best.pth",
-#     experiment_name="vgg16_classification_report_debug2",
-#     test_data=test_data,
-#     device=device,
-#     save_result=True,
-#     verbose=True
-#     )
-
-    # test_resnet18(
-    #     model_path="{result_foldername}best_models/resnet18_baseline_20_categories_0.0001lr_best.pth",
-    #     experiment_name="resnet18_classification_report_debug",
-    #     test_data=test_data,
-    #     device=device,
-    #     save_result=True,
-    #     verbose=True
-    # )
-
-#     # Create results directory if it doesn't exist
-#     if not os.path.exists('results'):
-#         os.makedirs('results')
-    
-#     # Memory optimization settings
-#     if torch.cuda.is_available():
-#         torch.cuda.empty_cache()
-#         # Enable memory efficient attention if available
-#         torch.backends.cudnn.benchmark = True
-#         # Set memory fraction to prevent over-allocation
-#         torch.cuda.set_per_process_memory_fraction(0.9)
-    
-#     num_epochs = 2
-#     num_folds = 3
-#     learning_rate = 0.0001
-#     lr_adjustment_rate = 0.0001
-#     batch_size = 4
-#     validation_size = 0.15
-#     prechosen_categories_csv_path = 'chosen_categories_3_10.csv'  # Use the file path string
-#     early_stopping_patience = 10
-#     lr_adjustment_patience = 5
-
-#     experiment_name1 = "vgg16_newdata-10classes-0.0001lr-testrun"
-#     experiment_name2 = "vgg16_newdata-10classes-0.0001lr-CV-testrun"
-
-#     prechosen_categories_csv = pd.read_csv(prechosen_categories_csv_path)  # Read the CSV for getting class names
-
-#     classes = prechosen_categories_csv['Category Name'].tolist()
-#     model_name1 = experiment_name1
-#     model_name2 = experiment_name2
-
-    # Initialize model  
-    # num_classes = len(classes)
-    # model1 = VGG16(num_classes=num_classes).to(device)
-    # model2 = VGG16(num_classes=num_classes).to(device)
-    # print(model)
-
-    ### Load data - manually
-
-    # train_data, val_data = prepare_data_manually(*classes, 
-    #                                     num_instances=50, 
-    #                                     split=True, 
-    #                                     split_size=0.15,
-    #                                     transform="vgg16", 
-    #                                     target_transform="integer")
-
-    # test_data = prepare_data_manually(*classes, 
-    #                                     num_instances=10, 
-    #                                     for_test=True,
-    #                                     transform="vgg16", 
-    #                                     target_transform="integer")
-    
-    ### Load data - pass the file path string, not the DataFrame
-    # train_data = prepare_data_from_preselected_categories(
-    #     prechosen_categories_csv_path, 
-    #     'train', 
-    #     split_val=False,
-    #     transform="vgg16",  # This will apply VGG16 transforms
-    #     target_transform="integer"  # This will convert labels to integers
-    # )
-
-    # test_data = prepare_data_from_preselected_categories(
-    #     prechosen_categories_csv_path, 
-    #     'test',
-    #     transform="vgg16",  # This will apply VGG16 transforms
-    #     target_transform="integer"  # This will convert labels to integers
-    # )
-
-
-    # Clean data
-    #train_data, val_data, test_data = eliminate_leaked_data(experiment_name1, train_data, val_data, test_data, verbose=True, save_result=True)
-
-
-    ### Train normally, without CV
-    # best_model_path1 = train_vgg16(model1, 
-    #                                train_data, 
-    #                                val_data, 
-    #                                model_name1, 
-    #                                device, 
-    #                                num_epochs=num_epochs, 
-    #                                learning_rate=learning_rate,
-    #                                lr_adjustment_rate=lr_adjustment_rate,
-    #                                batch_size=batch_size, 
-    #                                early_stopping_patience=early_stopping_patience,
-    #                                lr_adjustment_patience=lr_adjustment_patience)
-    
-    # test_vgg16(f"best_models/vgg16_newdata-10classes-0.0001lr-testrun_best.pth", 
-    #            experiment_name1, 
-    #            test_data, 
-    #            device, 
-    #            num_classes, 
-    #            save_result=True,
-    #            verbose=True)
-
-
-    ### Train with CV
-    # best_model_path2 = train_vgg16_with_CV(model2, 
-    #                                        train_data, 
-    #                                        num_folds, 
-    #                                        num_epochs, 
-    #                                        learning_rate, 
-    #                                        model_name2, 
-    #                                        device, 
-    #                                        batch_size, 
-    #                                        lr_adjustment_rate=lr_adjustment_rate,
-    #                                        save_result=True,
-    #                                        early_stopping_patience=early_stopping_patience,
-    #                                        lr_adjustment_patience=lr_adjustment_patience)
-    
-    # test_vgg16(best_model_path2, test_data, device, num_classes)
 
 
 
