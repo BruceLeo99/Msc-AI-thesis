@@ -37,18 +37,16 @@ def train_protopnet(
         device,
         num_prototypes=10,
         num_epochs=50,
-        learning_rate=0.0001,
         batch_size=32,
-        lr_adjustment_rate=0,
-        lr_adjustment_mode='none',
-        lr_adjustment_patience=0,
         use_warmup=None,
         convex_optim=None,
         save_result=False,
         early_stopping_patience=10,
         base_architecture='vgg16',
+        learning_rate_mode='regular',
         class_specific=True,
         get_full_results=True,
+        clip_gradient=None,
         num_workers=4,
         result_foldername='results'
 ):
@@ -135,19 +133,11 @@ def train_protopnet(
         with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
             f.write("Stage,Epoch,Mode,Time,Cross Entropy,Cluster,Separation,Avg Cluster,Accuracy,L1,P Avg Pair Dist\n")
 
-    best_joint_accuracy = 0.0
-    best_joint_epoch = 0
-    epochs_without_improvement_joint = 0
+    best_accuracy_alltime = 0.0
+    best_epoch_alltime = 0
+    epochs_without_improvement_alltime = 0
 
-    best_last_accuracy = 0.0
-    best_last_epoch = 0
-    epochs_without_improvement_last = 0
-
-    current_lr = learning_rate
-    
-    lr_adjustments_made = 0
-
-    best_model_state = None
+    best_model_state_alltime = None
     
     ### END SETUP MODEL HYPERPARAMS ###
     #_____________________________________________________________________________________________________# 
@@ -161,10 +151,32 @@ def train_protopnet(
         print(f"Stage 1: Warm-up training ({settings.num_warm_epochs} epochs)")
         
         # warm_optimizer using settings.warm_optimizer_lrs
-        warm_optimizer = optim.Adam([
-            {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs['add_on_layers'], 'weight_decay': 1e-3},
-            {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs['prototype_vectors']}
-        ])
+        if learning_rate_mode == 'regular':
+            warm_optimizer = optim.Adam([
+                {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs_regular['add_on_layers'], 'weight_decay': 1e-3},
+                {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs_regular['prototype_vectors']}
+            ])
+        elif learning_rate_mode == 'high':
+            warm_optimizer = optim.Adam([
+                {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs_high['add_on_layers'], 'weight_decay': 1e-3},
+                {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs_high['prototype_vectors']}
+            ])
+        elif learning_rate_mode == 'reduced':
+            warm_optimizer = optim.Adam([
+                {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs_reduced['add_on_layers'], 'weight_decay': 1e-3},
+                {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs_reduced['prototype_vectors']}
+            ])
+        elif learning_rate_mode == 'vast_reduced':
+            warm_optimizer = optim.Adam([
+                {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs_vast_reduced['add_on_layers'], 'weight_decay': 1e-3},
+                {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs_vast_reduced['prototype_vectors']}
+            ])
+
+        elif learning_rate_mode == 'vast_reduced2':
+            warm_optimizer = optim.Adam([
+                {'params': model.module.add_on_layers.parameters(), 'lr': settings.warm_optimizer_lrs_vast_reduced2['add_on_layers'], 'weight_decay': 1e-3},
+                {'params': model.module.prototype_vectors, 'lr': settings.warm_optimizer_lrs_vast_reduced2['prototype_vectors']}
+            ])
         
         if use_warmup == "default":
             num_warm_epochs = settings.num_warm_epochs
@@ -188,7 +200,8 @@ def train_protopnet(
                 warm_optimizer,  # Using warm_optimizer with settings
                 class_specific=class_specific,
                 get_full_results=get_full_results,
-                coefs=settings.coefs) 
+                coefs=settings.coefs,
+                clip_gradient=clip_gradient) 
             
             if save_result:
                 with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
@@ -212,11 +225,39 @@ def train_protopnet(
     print(f"\nStage 2: Joint training ({num_epochs} epochs)")
     
     # ADDED: joint_optimizer using settings.joint_optimizer_lrs
-    joint_optimizer = optim.Adam([
-        {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs['features']},
-        {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs['add_on_layers']},
-        {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs['prototype_vectors']}
-    ])
+    if learning_rate_mode == 'regular':
+        joint_optimizer = optim.Adam([
+            {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs_regular['features']},
+            {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs_regular['add_on_layers']},
+            {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs_regular['prototype_vectors']}
+        ])
+    elif learning_rate_mode == 'high':
+        joint_optimizer = optim.Adam([
+            {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs_high['features']},
+            {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs_high['add_on_layers']},
+            {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs_high['prototype_vectors']}
+        ])
+    elif learning_rate_mode == 'reduced':
+        joint_optimizer = optim.Adam([
+            {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs_reduced['features']},
+            {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs_reduced['add_on_layers']},
+            {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs_reduced['prototype_vectors']}
+        ])
+
+    elif learning_rate_mode == 'vast_reduced':
+
+        joint_optimizer = optim.Adam([
+            {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs_vast_reduced['features']},
+            {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs_vast_reduced['add_on_layers']},
+            {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs_vast_reduced['prototype_vectors']}
+        ])
+
+    elif learning_rate_mode == 'vast_reduced2':
+        joint_optimizer = optim.Adam([
+            {'params': model.module.features.parameters(), 'lr': settings.joint_optimizer_lrs_vast_reduced2['features']},
+            {'params': model.module.add_on_layers.parameters(), 'lr': settings.joint_optimizer_lrs_vast_reduced2['add_on_layers']},
+            {'params': model.module.prototype_vectors, 'lr': settings.joint_optimizer_lrs_vast_reduced2['prototype_vectors']}
+        ])
 
     for epoch in range(num_epochs):
 
@@ -254,20 +295,20 @@ def train_protopnet(
             with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
                 f.write(f"joint,{epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist}\n")
 
-        
+
         # Early stopping: register the best joint accuracy and epoch, then decide whether to stop
-        if val_accuracy > best_joint_accuracy:
-            best_joint_accuracy = val_accuracy
-            best_joint_epoch = epoch + 1
-            epochs_without_improvement_joint = 0
-            best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+        if val_accuracy > best_accuracy_alltime:
+            best_accuracy_alltime = val_accuracy
+            best_epoch_alltime = epoch + 1
+            epochs_without_improvement_alltime = 0
+            best_model_state_alltime = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
             print(f"Best joint model saved for epoch {epoch+1} with accuracy {val_accuracy:.2f}")
         else:
-            epochs_without_improvement_joint += 1
-            print(f"No improvement for {epochs_without_improvement_joint} epochs (best: {best_joint_accuracy:.2f} at epoch {best_joint_epoch})")
+            epochs_without_improvement_alltime += 1
+            print(f"No improvement for {epochs_without_improvement_alltime} epochs (best: {best_accuracy_alltime:.2f} at epoch {best_epoch_alltime})")
         
-        if epochs_without_improvement_joint >= early_stopping_patience:
-            print(f"Early stopping triggered at epoch {epoch+1} with best joint accuracy {best_joint_accuracy:.2f} at epoch {best_joint_epoch}")
+        if epochs_without_improvement_alltime >= early_stopping_patience:
+            print(f"Early stopping triggered at epoch {epoch+1} with best joint accuracy {best_accuracy_alltime:.2f} at epoch {best_epoch_alltime}")
             break
 
     ## END STAGE 2 ###
@@ -322,21 +363,21 @@ def train_protopnet(
                     f.write(f"last,{last_epoch+1},validation,{running_time},{val_loss},{cluster_cost},{separation_cost},{avg_cluster_cost},{val_accuracy},{l1},{p_avg_pair_dist}\n")
 
             # early stopping: register the best last accuracy and epoch, then decide whether to stop
-            if val_accuracy > best_last_accuracy:
-                print(f"Model improved in last layer optimization → saving at epoch {epoch+1} with accuracy {val_accuracy:.2f}")
-                best_last_accuracy = val_accuracy
-                best_last_epoch = epoch + 1
-                epochs_without_improvement_last = 0
-                best_model_state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            if val_accuracy > best_accuracy_alltime:
+                print(f"Model improved in last layer optimization → saving at epoch {last_epoch+1} with accuracy {val_accuracy:.2f}")
+                best_accuracy_alltime = val_accuracy
+                best_epoch_alltime = last_epoch + 1
+                epochs_without_improvement_alltime = 0
+                best_model_state_alltime = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
 
-            if epochs_without_improvement_last >= early_stopping_patience:
-                print(f"Early stopping triggered at epoch {epoch+1} with best last accuracy {best_last_accuracy:.2f} at epoch {best_last_epoch}")
+            if epochs_without_improvement_alltime >= early_stopping_patience:
+                print(f"Early stopping triggered at epoch {last_epoch+1} with best last accuracy {best_accuracy_alltime:.2f} at epoch {best_epoch_alltime}")
                 break
 
     ### END STAGE 3 ###
     #_____________________________________________________________________________________________________# 
 
-    if best_model_state is not None:
+    if best_model_state_alltime is not None:
         model_config = {
             'base_architecture': base_architecture,
             'pretrained': True,
@@ -346,7 +387,7 @@ def train_protopnet(
             'img_size': 224
         }
 
-        torch.save({'model_config': model_config, 'state_dict': best_model_state}, f"{best_models_foldername}/{model_name}_best.pth")
+        torch.save({'model_config': model_config, 'state_dict': best_model_state_alltime}, f"{best_models_foldername}/{model_name}_best.pth")
         print(f"Final best model confirmed saved: {model_name}_best.pth")
 
     

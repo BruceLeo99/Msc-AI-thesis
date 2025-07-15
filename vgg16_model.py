@@ -121,9 +121,6 @@ def train_vgg16(
         num_epochs = 10,
         learning_rate = 0.0001,
         batch_size = 32,
-        lr_adjustment_rate = 0.0001,
-        lr_adjustment_mode = None,
-        lr_adjustment_patience = 5,
         save_result = False,
         early_stopping_patience = 10,
         num_workers = 0,
@@ -143,9 +140,6 @@ def train_vgg16(
         num_epochs: Number of epochs to train
         learning_rate: Learning rate for training
         batch_size: Batch size for training
-        lr_adjustment_rate: Learning rate increment rate
-        lr_adjustment_mode: Mode of learning rate adjustment
-        lr_adjustment_patience: Patience for learning rate increase
         save_result: Whether to save the result
         early_stopping_patience: Patience for early stopping
         num_workers: Number of workers for data loading
@@ -199,12 +193,10 @@ def train_vgg16(
     # Train model
     if save_result:
         with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
-            f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
+            f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time\n")
 
     best_accuracy = 0
-    current_lr = learning_rate
     epochs_without_improvement = 0
-    lr_adjustments_made = 0
     best_model_state = None
 
 
@@ -303,35 +295,15 @@ def train_vgg16(
                 epochs_without_improvement += 1
                 print(f"Model performance did not improve for {epochs_without_improvement} times")
 
-            # Increase learning rate if validation accuracy is not improving
-            # Increase learning rate every 10 epochs 5 times in total. 
-            # After 5 times, if the model still does not improve, stop training.
             if epochs_without_improvement >= early_stopping_patience:
-
-                if lr_adjustment_mode is not None:
-
-                    if lr_adjustments_made < lr_adjustment_patience:
-                        if lr_adjustment_mode == 'increase':
-                            learning_rate += lr_adjustment_rate
-                        elif lr_adjustment_mode == 'decrease':
-                            learning_rate -= lr_adjustment_rate
-                        current_lr = learning_rate  # Update current learning rate
-                        # Update optimizer learning rate
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = learning_rate
-                        lr_adjustments_made += 1
-                        epochs_without_improvement = 0
-                        print(f"Learning rate increased to {learning_rate}")
-
-                else:
-                    print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
-                    break
+                print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after {early_stopping_patience} times")
+                break
 
         # Calculate time spent for one epoch and save the result
         epoch_time = train_time_spent + val_time
         if save_result:
             with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},{loss.item()},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f},{current_lr}\n")
+                f.write(f"{epoch+1},{loss.item()},{val_loss_avg:.4f},{train_accuracy:.2f},{val_accuracy:.2f},{epoch_time:.2f}\n")
     
     # End of training 
     print("Training Complete!")
@@ -645,11 +617,13 @@ def test_vgg16(model_path,
 
     model = VGG16(num_classes=test_data.get_num_classes()).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
+    criterion = nn.CrossEntropyLoss()
     test_loader = DataLoader(test_data, shuffle=False)
     model.eval()
 
     test_correct = 0
     test_total = 0
+    loss_total = 0
 
     y_img_ids = []
     y_true = []
@@ -679,7 +653,7 @@ def test_vgg16(model_path,
 
             test_total += labels.size(0)
             test_correct += predicted.eq(labels).sum().item()
-
+            loss_total += criterion(outputs, labels).item()
             # Store raw integer labels for confusion matrix
             y_true.append(labels.item())
             y_pred.append(predicted.item())
@@ -712,7 +686,7 @@ def test_vgg16(model_path,
             torch.cuda.empty_cache()
 
     test_accuracy = 100 * test_correct / test_total
-
+    test_loss = loss_total / test_total
     # Convert labels to class names for individual results
     individual_prediction_results = dict()
     for test_image_id, test_label, test_pred in zip(y_img_ids, y_true, y_pred):
@@ -733,7 +707,7 @@ def test_vgg16(model_path,
     print("TEST RESULTS")
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
-
+    print(f"Test Loss: {test_loss:.4f}")
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys())))
 
@@ -746,6 +720,7 @@ def test_vgg16(model_path,
         'label_to_idx': label_to_idx,
         'idx_to_label': idx_to_label,
         'test_accuracy': test_accuracy,
+        'loss': test_loss,
         'confusion_matrix_images': confusion_matrix_for_each_individual,
         'individual_prediction_results': individual_prediction_results
     }

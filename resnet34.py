@@ -97,11 +97,8 @@ def train_resnet34(
         num_epochs=10,
         learning_rate=0.0001,
         batch_size=32,
-        lr_adjustment_rate=0.0001,
-        lr_adjustment_mode='increase',
         save_result=False,
         early_stopping_patience=5,
-        lr_adjustment_patience=3,
         num_workers=4,
         result_foldername='results'):
 
@@ -152,13 +149,11 @@ def train_resnet34(
 
     if save_result:
         with open(f"{result_foldername}/{model_name}_result.csv", "w") as f:
-             f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time,Learning Rate\n")
+             f.write("Epoch,Training Loss,Validation Loss,Training Accuracy,Validation Accuracy,Time\n")
 
     best_accuracy = 0.0
-    current_lr = learning_rate
     epochs_without_improvement = 0
     best_epoch = 0
-    lr_adjustments_made = 0
     best_model_state = None
 
     print("Starting Training – ResNet34")
@@ -235,30 +230,15 @@ def train_resnet34(
             epochs_without_improvement += 1
             print(f"Model performance did not improve for {epochs_without_improvement} times")
 
-        # Increase learning rate if validation accuracy is not improving
-        # Increase learning rate every 10 epochs 5 times in total. 
-        # After 5 times, if the model still does not improve, stop training.
         if epochs_without_improvement >= early_stopping_patience:
-            if lr_adjustments_made < lr_adjustment_patience:
-                if lr_adjustment_mode == 'increase':
-                    learning_rate += lr_adjustment_rate
-                elif lr_adjustment_mode == 'decrease':
-                    learning_rate -= lr_adjustment_rate
-                current_lr = learning_rate
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = learning_rate
-                lr_adjustments_made += 1
-                epochs_without_improvement = 0
-                print(f"Learning rate increased to {learning_rate}")
-            else:
-                print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after increasing learning rate {lr_adjustment_patience} times")
-                break
+            print(f"Early stopping at epoch {epoch+1} due to no improvement in validation accuracy after {early_stopping_patience} times")
+            break
 
         # Calculate time spent for one epoch and save the result
         time_epoch_spent = train_time_spent + val_time_spent
         if save_result:
             with open(f"{result_foldername}/{model_name}_result.csv", "a") as f:
-                f.write(f"{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{time_epoch_spent:.2f},{current_lr}\n")
+                f.write(f"{epoch+1},{avg_loss:.4f},{val_loss_avg:.4f},{train_acc:.2f},{val_acc:.2f},{time_epoch_spent:.2f}\n")
 
     # End of training
     print("Training complete!")
@@ -302,6 +282,7 @@ def test_resnet34(model_path,
 
     model = ResNet34(num_classes=test_data.get_num_classes()).to(device)
     state_dict = torch.load(model_path, map_location=device)
+    criterion = nn.CrossEntropyLoss()
 
     # Remove 'module.' prefix if it exists
     module_replaced = False
@@ -328,6 +309,7 @@ def test_resnet34(model_path,
 
     test_correct = 0
     test_total = 0
+    loss_total = 0
 
     y_img_ids = []
     y_true = []
@@ -359,7 +341,7 @@ def test_resnet34(model_path,
 
             test_total += labels.size(0)
             test_correct += predicted.eq(labels).sum().item()
-
+            loss_total += criterion(outputs, labels).item()
             for p, t in zip(predicted, labels):
                 # Convert tensors to integers
                 p_int = p.item()
@@ -400,6 +382,7 @@ def test_resnet34(model_path,
             torch.cuda.empty_cache()
 
     test_accuracy = 100 * test_correct / test_total
+    test_loss = loss_total / test_total
 
     individual_prediction_results = dict()
 
@@ -413,16 +396,17 @@ def test_resnet34(model_path,
     print("TEST RESULTS")
     print(f"{'='*60}")
     print(f"Test Accuracy: {test_accuracy:.2f}%  (Total samples: {test_total})")
+    print(f"Test Loss: {test_loss:.4f}")
 
-    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys()), output_dict=True)
-    conf_matrix = confusion_matrix(y_true, y_pred)
+    classi_report = classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys()), output_dict=True)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys()))
 
-    if verbose:
-        print("\nClassification Report:")
-        print(classification_report(y_true, y_pred, labels=list(label_to_idx.values()), target_names=list(label_to_idx.keys())))
 
-        print("\nConfusion Matrix:")
-        print(confusion_matrix(y_true, y_pred))
+    print("\nClassification Report:")
+    print(classification_report(y_true, y_pred, labels=list(label_to_idx.keys()), target_names=list(label_to_idx.keys())))
+
+    print("\nConfusion Matrix:")
+    print(confusion_matrix(y_true, y_pred, labels=list(label_to_idx.keys())))
 
 
     test_result = {
@@ -431,6 +415,7 @@ def test_resnet34(model_path,
         'label_to_idx': label_to_idx,
         'idx_to_label': idx_to_label,
         'test_accuracy': test_accuracy,
+        'loss': test_loss,
         'confusion_matrix_for_each_individual': confusion_matrix_for_each_individual,
         'individual_prediction_results': individual_prediction_results
     }
