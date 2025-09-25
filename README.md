@@ -1,0 +1,167 @@
+## Multimodal Prototype-Based Networks for Interpretable Food Classification (Food-101)
+
+> Novel, multimodal ProtoPNet-style PBN using VisualBERT + generated captions (BLIP/BLIP2) to improve Food-101 classification accuracy while preserving interpretability.
+
+### Highlights
+- **Novelty**: A new, multimodal Prototype-Based Network (mPBN) that fuses images with generated captions, extending **ProtoPNet** [1] with a **VisualBERT** [2] encoder. Prototypes live in the joint semantic space of text–vision.
+- **Interpretability**: Classify-by-prototypes with explicit cluster and separation terms; additional **DeepSHAP** [3] analyses for both unimodal and multimodal models.
+- **Results**: On Food-101, the best multimodal model (BLIP2 captions) achieves **77.34%** accuracy, surpassing the best unimodal ProtoPNet (**69.74%**) and VGG16 baseline (**55.37%**).
+- **Engineering**: End-to-end pipeline: caption generation (BLIP/BLIP2), data curation, efficient dataloading, multimodal fusion, 3-stage ProtoPNet training, evaluation, and explainability artifacts.
+
+![Original PBN architecture]("C:\Users\yixin\Desktop\Workspace\University\MSc\Year 2\MSc Thesis Project\figures\PBN Architecture.png")Original PBN Architecture
+![Novel mPBN architecture]("C:\Users\yixin\Desktop\Workspace\University\MSc\Year 2\MSc Thesis Project\figures\PBN Architecture.png")Novel mPBN Architecture
+---
+
+## 1) Overview
+- **Objective**: Build an interpretable, high-accuracy food classifier that leverages both image content and natural-language descriptions, enabling prototype-level reasoning grounded in multimodal semantics.
+- **Key idea**: Generate captions for each image (BLIP/BLIP2) [4], tokenize them, and feed the text together with CNN features into **VisualBERT**. Learn class-specific prototypes in the VisualBERT [CLS] space and classify by proximity to these prototypes.
+- **Findings**:
+  - Using captions substantially improves Food-101 accuracy vs image-only baselines.
+  - Caption quality matters: BLIP2 captions outperform BLIP.
+  - A small number of prototypes per class (1–2) works best in the multimodal setting; too many prototypes can hurt generalization.
+
+For more context, see the final thesis submission `MSc_AI_Thesis_yyg760.pdf`.
+
+---
+
+## 2) Methodology
+
+### Data & Captions
+- **Dataset**: Food-101 (101 classes) [5]. Custom annotations and label mappings are used.
+  - Dataloader: `Food101_dataloader.py` with `Food101Dataset` and helpers `lazy_load_original` / `lazy_load_customized`.
+  - Inputs: images normalized to VGG/ResNet stats; labels mapped via `Food101/food-101/meta/label_map.json`.
+- **Captioning**: `Food101_captioning.py` with Hugging Face models
+  - BLIP: `Salesforce/blip-image-captioning-base`
+  - BLIP2: `Salesforce/blip2-opt-2.7b`
+  - Captions are cleaned (noise removal + label leakage prevention) and saved into JSON annotations as `blip_caption` / `blip2_caption`.
+
+### Model: Multimodal PBN (mPBN)
+- Core: `multimodal_PBN.py`
+  - Visual features: `VGG16` or "ResNet34" backbone features projected to match VisualBERT’s expected dimension.
+  - Text features: tokenized captions (`bert-base-uncased`) into **VisualBERT** (`uclanlp/visualbert-vqa-coco-pre`).
+  - Fusion: Visual token (from VGG16) + text tokens in VisualBERT → use `[CLS]` embedding as joint representation.
+  - Prototypes: learn class-specific prototypes in the `[CLS]` space; logits are negative distances to prototypes via a linear last layer.
+- Training flow: `ProtoPNet/train_and_test_mPBN.py` with the canonical ProtoPNet three stages
+  1. Warm-up (train add-on/prototypes/last layer)
+  2. Joint training (unfreeze all: encoder, CNN features, projection, prototypes, last layer)
+  3. Last-layer optimization (optional convex-like step, L1 on last layer)
+- Losses: Cross-entropy + prototype cluster/separation terms (+ optional L1), following ProtoPNet design (`ProtoPNet/settings.py`).
+
+### Baselines & Comparisons
+- Image-only baselines: `vgg16_model.py`, `resnet18_model.py`, `resnet34.py`.
+- Unimodal ProtoPNet (image-only): `unimodal_ProtoPNet.py` (also three-stage training, spatial prototypes).
+- Explainability: DeepSHAP for both unimodal and multimodal
+  - Multimodal: `DeepSHAP_explaner_mPBN*.py`, `KernelSHAP_explaner_mPBN.py` (wrappers prepare visual + repeated text inputs).
+  - Unimodal: `DeepSHAP_explaner_PBN*.py`, `KernelSHAP_explaner_PBN.py`.
+
+(insert image here: training stages / losses)
+
+---
+
+## 3) Technical Configuration
+
+### Tech Stack
+- Python, PyTorch (e.g., torch 2.7.0 CUDA), torchvision, scikit-learn
+- Hugging Face Transformers (VisualBERT, BLIP, BLIP2)
+- Utilities: numpy, pandas, matplotlib, scikit-image
+- See exact versions in `requirements.txt`
+
+### Repository Map (selected)
+- Multimodal model: `multimodal_PBN.py`
+- Unimodal ProtoPNet and baselines: `unimodal_ProtoPNet.py`, `vgg16_model.py`, `resnet34.py`
+- ProtoPNet core: `ProtoPNet/` (settings, train/test stages, push/prune, etc.)
+- Data loading: `Food101_dataloader.py`
+- Captioning: `Food101_captioning.py`
+- SHAP explainers: `DeepSHAP_explaner_*`, `KernelSHAP_explaner_*`
+- Results: `results_final/` (per-experiment folders, CSV/JSON reports)
+
+### Data Preparation
+- Download Food-101 and organize metadata as in `Food101/food-101/meta/`.
+- Generate captions using `Food101_captioning.py` (BLIP or BLIP2) and merge into your annotation JSONs as `blip_caption` / `blip2_caption`.
+- Confirm label mappings in `Food101/food-101/meta/label_map.json`.
+
+### Training
+- Multimodal training entry points:
+  - Programmatic: call `train_multimodal_PBN(...)` from `multimodal_PBN.py`.
+  - The training stages and optimizers are orchestrated by `ProtoPNet/train_and_test_mPBN.py` with hyperparameters in `ProtoPNet/settings.py`.
+- Unimodal ProtoPNet: `train_protopnet(...)` in `unimodal_ProtoPNet.py`.
+- Baselines: `train_vgg16(...)`,  `train_resnet34(...)`.
+- Evaluation: each module provides `test_*` functions; aggregated CSV/JSON are written into `results_final/`.
+- All trainings were completed on DAS-6 Supercomputer [6].
+  
+Example (pseudo-code):
+```python
+from Food101_dataloader import lazy_load_original
+from multimodal_PBN import train_multimodal_PBN, test_multimodal_PBN
+
+train, test = lazy_load_original(load_captions=True, transform='vgg16', target_transform='integer', caption_type='blip2')
+model_path = train_multimodal_PBN(train, test, model_name='mPBN_1p_blip2', device='cuda', num_prototypes_per_class=1, num_epochs=50, save_result=True)
+results = test_multimodal_PBN(model_path, 'mPBN_1p_blip2', test, device='cuda', save_result=True)
+print(results)
+```
+
+(insert image here: confusion matrix / prototype visualizations)
+
+---
+
+## 4) Results & Conclusion
+
+### Key Results (Food-101)
+
+| Model                            | Accuracy (%) | Notes                  |
+|----------------------------------|--------------|------------------------|
+| Baseline VGG16                   | 55.37        | Image-only             |
+| PBN-ResNet34 (2 prototypes)      | 69.74        | Best unimodal PBN      |
+| mPBN (BLIP captions, 1 prototype)| 72.65        | Multimodal (BLIP)      |
+| mPBN (BLIP2 captions, 1 prototype)| 77.34       | Best overall (BLIP2)   |
+
+Source: `results_final/Food101-test_results.csv`
+
+### Findings
+- **Multimodality helps**: Adding captions lifts accuracy by ~7–8 points over the best unimodal ProtoPNet.
+- **Caption quality matters**: BLIP2 > BLIP, consistent with stronger language modeling.
+- **Prototype count**: 1–2 per class works best for mPBN. Larger counts can overfit and degrade performance.
+- **Interpretability**: Prototypes in the joint space remain human-inspectable; SHAP analyses further explain visual/text contributions per prediction.
+
+### Conclusion
+- This project demonstrates that aligning prototypes with multimodal semantics produces a more accurate and still interpretable classifier. Language grounding via high-quality generated captions is a practical and scalable path to boost performance without human annotations.
+
+---
+
+## Getting Started
+
+1) Create environment and install deps
+```bash
+pip install -r requirements.txt
+```
+2) Prepare Food-101 and annotation JSONs, including generated captions.
+3) Train a model via the programmatic API in a notebook or script (see example above).
+
+Hardware: a CUDA-enabled GPU is strongly recommended for BLIP2/VisualBERT and training.
+
+---
+
+## Explainability Artifacts
+- Run SHAP explainers to visualize pixel- and token-level influences:
+  - Multimodal: `DeepSHAP_explaner_mPBN*.py`, `KernelSHAP_explaner_mPBN.py`
+  - Unimodal: `DeepSHAP_explaner_PBN*.py`, `KernelSHAP_explaner_PBN.py`
+- Classification reports and confusion matrices are auto-saved in `results_final/`.
+
+(insert image here: SHAP visualization)
+
+---
+
+## References & Acknowledgements
+- ProtoPNet: `ProtoPNet/` (original design: prototypes + cluster/separation losses)
+- VisualBERT: `uclanlp/visualbert-vqa-coco-pre`
+- BLIP/BLIP2: Salesforce Research captioning models
+- Dataset: Food-101
+
+For research and implementation details, see the thesis PDF: `MSc_AI_Thesis_yyg760.pdf`.
+
+---
+
+## Notes for Reviewers (Engineering Readiness)
+- Clear separation of concerns: data prep, captioning, dataloading, training, evaluation, and explainability.
+- ProtoPNet patterns preserved for reproducibility; multimodal extension is modular and configurable.
+- Results are scripted with CSV/JSON artifacts for easy comparison and auditability. 
