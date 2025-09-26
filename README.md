@@ -105,7 +105,7 @@ For more context, see the final thesis submission `MSc_AI_Thesis_yyg760.pdf`.
   - The training stages and optimizers are orchestrated by `ProtoPNet/train_and_test_mPBN.py` with hyperparameters in `ProtoPNet/settings.py`.
 - Unimodal ProtoPNet: `train_protopnet(...)` in `unimodal_ProtoPNet.py`.
 - Baselines: `train_vgg16(...)`,  `train_resnet34(...)`.
-- Evaluation: each module provides `test_*` functions; aggregated CSV/JSON are written into `results_final/`.
+- Evaluation: each module provides `test_*` functions and checkpoints (.pth file); aggregated CSV/JSON are written into `results_final/`(not published, please contact the author for complete result).
 - All trainings were completed on DAS-6 Supercomputer [8].
   
 Example (pseudo-code):
@@ -132,7 +132,7 @@ print(results) # Or log the result
 | mPBN (BLIP captions, 1 prototype)| 72.65        | Multimodal (BLIP)      |
 | mPBN (BLIP2 captions, 1 prototype)| 77.34       | Best overall (BLIP2)   |
 
-See `results_final/Food101-test_results.csv` for the complete result.
+(To access the complete result, please check `MSc_AI_Thesis_yyg760.pdf` or contact the author)
 
 ### Findings
 - **Multimodality helps**: Adding captions lifts accuracy by ~7–8 points over the best unimodal ProtoPNet.
