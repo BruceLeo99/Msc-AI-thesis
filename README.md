@@ -74,13 +74,14 @@ For more context, see the final thesis submission `MSc_AI_Thesis_yyg760.pdf`.
   - Multimodal: `DeepSHAP_explaner_mPBN*.py`,  (wrappers prepare visual + repeated text inputs).
 ---
 
-## 3) Technical Configuration
+## 3) Technical Configuration & Installation
 
-### Tech Stack
-- Python, PyTorch (e.g., torch 2.7.0 CUDA), torchvision, scikit-learn
-- Hugging Face Transformers (VisualBERT, BLIP, BLIP2)
-- Utilities: numpy, pandas, matplotlib, scikit-image
-- See exact versions in `requirements.txt`
+### Main libraries 
+- Python, PyTorch (e.g., torch 2.7.0 CUDA), torchvision, scikit-learn, numpy, pandas, matplotlib, scikit-image
+- Hugging Face Transformers ([VisualBERT](https://github.com/uclanlp/visualbert), [BLIP](https://huggingface.co/docs/transformers/en/model_doc/blip), [BLIP2](https://huggingface.co/docs/transformers/en/model_doc/blip-2))
+- [ProtoPNet](https://github.com/cfchen-duke/ProtoPNet)
+  
+See full list in `requirements.txt`
 
 ### Repository Map (selected)
 - Multimodal model: `multimodal_PBN.py`
@@ -95,7 +96,7 @@ For more context, see the final thesis submission `MSc_AI_Thesis_yyg760.pdf`.
 - Results: `results_final/` (per-experiment folders, CSV/JSON reports)
 
 ### Data Preparation
-- Download Food-101 and organize metadata as in `Food101/food-101/meta/`.
+- Download Food-101 and organize metadata as in `Food101/food-101/meta/`([Original download link](https://www.kaggle.com/datasets/dansbecker/food-101). 
 - Generate captions using `Food101_captioning.py` (BLIP or BLIP2) and merge into your annotation JSONs as `blip_caption` / `blip2_caption`.
 - Confirm label mappings in `Food101/food-101/meta/label_map.json`.
 
