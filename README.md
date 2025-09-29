@@ -1,4 +1,4 @@
-## Multimodal Prototype-Based Networks for Interpretable Food Classification (Food-101)
+# Multimodal Prototype-Based Networks for Interpretable Food Classification (Food-101)
 
 > Novel, multimodal ProtoPNet-style PBN using VisualBERT + generated captions (BLIP/BLIP2) to improve Food-101 classification accuracy while preserving interpretability.
 
@@ -26,6 +26,7 @@
 
 
 ---
+# Project Description
 
 ## 1) Overview
 - **Objective**: Build an interpretable, high-accuracy food classifier that leverages both image content and natural-language descriptions, enabling prototype-level reasoning grounded in multimodal semantics.
@@ -74,51 +75,60 @@ For more context, see the final thesis submission `MSc_AI_Thesis_yyg760.pdf`.
   - Multimodal: `DeepSHAP_explaner_mPBN*.py`,  (wrappers prepare visual + repeated text inputs).
 ---
 
-## 3) Technical Configuration & Installation
+## 3) Technical Configuration
 
-### Main libraries 
-- Python, PyTorch (e.g., torch 2.7.0 CUDA), torchvision, scikit-learn, numpy, pandas, matplotlib, scikit-image
-- Hugging Face Transformers ([VisualBERT](https://github.com/uclanlp/visualbert), [BLIP](https://huggingface.co/docs/transformers/en/model_doc/blip), [BLIP2](https://huggingface.co/docs/transformers/en/model_doc/blip-2))
-- [ProtoPNet](https://github.com/cfchen-duke/ProtoPNet)
-  
-See full list in `requirements.txt`
+### Main Libraries & Dependencies
+- Python: **3.12.7**
+- Core libraries: `torch` (12.6, CUDA), `torchvision`, `scikit-learn`, `numpy`, `pandas`, `matplotlib`, `scikit-image`
+- Base PBN architecture (functioning itself as an unimodal PBN with a CNN backbone encoder): [ProtoPNet](https://github.com/cfchen-duke/ProtoPNet)  
+- Hugging Face Transformers (pretrained):
+   - Multimodal backbone encoder for base PBN (not by default, needed to implement manually): [VisualBERT](https://github.com/uclanlp/visualbert)
+   - Caption generation: [BLIP](https://huggingface.co/docs/transformers/en/model_doc/blip), [BLIP2](https://huggingface.co/docs/transformers/en/model_doc/blip-2))
+- Attention Visualization: [DeepSHAP](https://shap.readthedocs.io/en/latest/generated/shap.DeepExplainer.html), to interpret and visualize how both image (pixels) and text (tokens) contribute to model predictions in unimodal and multimodal settings.
 
-### Repository Map (selected)
-- Multimodal model: `multimodal_PBN.py`
-- Unimodal ProtoPNet and baselines: `unimodal_ProtoPNet.py`, `vgg16_model.py`, `resnet34.py`
-- ProtoPNet core: `ProtoPNet/` (settings, train/test stages, push/prune, etc.)
-- Data loading: `Food101_dataloader.py`
-- Captioning: `Food101_captioning.py`
-- SHAP explainers: `DeepSHAP_explaner_*`
-- Execution scripts (to train models on servers, setup model configs, and execute DeepSHAP analysis. .py scripts and .sh files):
-  - Model training: `model_training_scripts/*`
-  - Model training: `SHAP_scripts/*`
-- Results: `results_final/` (per-experiment folders, CSV/JSON reports)
+See full list in `requirements.txt`.
 
-### Data Preparation
-- Download Food-101 and organize metadata as in `Food101/food-101/meta/`([Original download link](https://www.kaggle.com/datasets/dansbecker/food-101). 
-- Generate captions using `Food101_captioning.py` (BLIP or BLIP2) and merge into your annotation JSONs as `blip_caption` / `blip2_caption`.
-- Confirm label mappings in `Food101/food-101/meta/label_map.json`.
+### External Data & Resources
+- **Dataset:** [Food-101](https://www.kaggle.com/datasets/dansbecker/food-101) (must be downloaded separately)
+- Generated captions: Generated with _BLIP_ and _BLIP-2_ implemented in `Food101_captioning.py`, saved in `complete_annotations/*` in JSON format (original scripts to batch generate captions for the entire dataset are not included in this repository - please contact the author for the source).
 
-### Training
+### Model Training
 - Multimodal training entry points:
   - Programmatic: call `train_multimodal_PBN(...)` from `multimodal_PBN.py`.
   - The training stages and optimizers are orchestrated by `ProtoPNet/train_and_test_mPBN.py` with hyperparameters in `ProtoPNet/settings.py`.
 - Unimodal ProtoPNet: `train_protopnet(...)` in `unimodal_ProtoPNet.py`.
 - Baselines: `train_vgg16(...)`,  `train_resnet34(...)`.
-- Evaluation: each module provides `test_*` functions and checkpoints (.pth file); aggregated CSV/JSON are written into `results_final/`(not published, please contact the author for complete result).
-- All trainings were completed on DAS-6 Supercomputer [8].
-  
-Example (pseudo-code):
-```python
-from Food101_dataloader import lazy_load_original
-from multimodal_PBN import train_multimodal_PBN, test_multimodal_PBN
+- **All training results will return a .pth file**
 
-train, test = lazy_load_original(load_captions=True, transform='vgg16', target_transform='integer', caption_type='blip2')
-model_path = train_multimodal_PBN(train, test, model_name='mPBN_1p_blip2', device='cuda', num_prototypes_per_class=1, num_epochs=50, save_result=True)
-results = test_multimodal_PBN(model_path, 'mPBN_1p_blip2', test, device='cuda', save_result=True)
-print(results) # Or log the result
-```
+### Model Evaluation
+- Each module provides `test_*` functions and **checkpoints (.pth file)**; aggregated CSV/JSON are written into `results_final/`(not published, please contact the author for complete result).
+
+### Attention Visualization (DeepSHAP)
+- **Core Scripts:**
+  - `DeepSHAP_explaner_PBN*.py` — For unimodal (image-only) models.
+  - `DeepSHAP_explaner_mPBN*.py` — For multimodal (image+caption) models, handling joint visual and text features.
+- **Process Overview:**
+  - Loads trained model checkpoints and test data.
+  - Computes SHAP values for each prediction, highlighting influential pixels and tokens.
+  - Generates visual artifacts (heatmaps, token importances) for qualitative analysis.
+- **Output Artifacts:**
+  - Visual explanations (e.g., saliency maps overlayed on images).
+  - Token-level importance visualizations for captions.
+  - Classification reports and confusion matrices (saved in `results_final/`).
+
+**All trainings, evaluations, and attention analysis were completed on DAS-6 Supercomputer [8].**
+
+  
+### Repository Structure (key scripts and folders)
+- `multimodal_PBN.py` — Multimodal model core
+- `unimodal_ProtoPNet.py`, `vgg16_model.py`, `resnet34.py` — Baseline and unimodal models
+- `ProtoPNet/` — ProtoPNet core logic, training, and settings
+- `Food101_dataloader.py` — Data loaders
+- `Food101_captioning.py` — Caption generation with BLIP/BLIP2
+- `DeepSHAP_explaner_*` — SHAP explainers for model interpretability
+- `model_training_scripts/*`, `SHAP_scripts/*` — Training and SHAP analysis scripts
+- `results_final/` — Output results and reports
+- `MSc_AI_Thesis_yyg760.pdf` - Final thesis submission
 
 ---
 
@@ -146,28 +156,41 @@ print(results) # Or log the result
 
 ---
 
-## Getting Started
+# Getting Started
 
-1) Create environment and install deps
-** Python version: 3.12.7**
-```bash
-pip install -r requirements.txt
-```
-2) Prepare Food-101 and annotation JSONs, including generated captions.
-3) Train a model via the script in  `model_training_scripts/*` (see example above).
-4) Visualize the model's attention in  `SHAP_scripts/*`
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/BruceLeo99/Msc-AI-thesis.git
+   cd Msc-AI-thesis
+- Use Python 3.12.7
+  
+2. Install dependencies
+   ```bash
+   pip install -r requirements.txt
 
+3. Download and prepare Food-101 dataset and save under `Food101/food-101/meta/` (See download link above)
+
+4. (Optional) Generate image captions by using `Food101_captioning.py` (Captions have already been generated and saved under `complete_annotations/*`. For the original batch generating script, don't hesitate to get in touch with the author)
+
+5. Model Training: Use provided scripts in `model_training_scripts/` or run programmatically, e.g.:
+  ```python
+from Food101_dataloader import lazy_load_original
+from multimodal_PBN import train_multimodal_PBN
+
+train, test = lazy_load_original(load_captions=True, transform='vgg16', target_transform='integer', caption_type='blip2')
+model_path = train_multimodal_PBN(train, test, model_name='mPBN_1p_blip2', device='cuda')
+ ```
+
+6. Evaluate and visualize results
+- Scripts in `SHAP_scripts/*` for explainability.
+- Results are saved in `results_final/`.
+- Multimodal SHAP analysis tools are implemented in `DeepSHAP_explaner_mPBN*.py`
+- Unimodal SHAP analysis tools are implemented in `DeepSHAP_explaner_PBN*.py`
+  
 Hardware: a CUDA-enabled GPU is strongly recommended for BLIP2/VisualBERT and training.
 
 ---
 
-## Explainability Artifacts
-- Run SHAP explainers to visualize pixel- and token-level influences:
-  - Multimodal: `DeepSHAP_explaner_mPBN*.py`
-  - Unimodal: `DeepSHAP_explaner_PBN*.py`
-- Classification reports and confusion matrices are auto-saved in `results_final/`.
-
----
 
 ## References & Acknowledgements
 <ol>
